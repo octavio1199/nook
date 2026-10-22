@@ -21,7 +21,7 @@ struct TaskDetailView: View {
             VStack(alignment: .leading, spacing: 8) {
                 header(task)
                 titleField(task)
-                chips(task)
+                properties(task)
                 meta(task)
                 notes(task)
             }
@@ -133,45 +133,72 @@ struct TaskDetailView: View {
         TaskActions.rename(task, to: trimmed, planner: planner, focus: focus)
     }
 
-    // MARK: Chips
+    // MARK: Properties
 
-    private func chips(_ task: TaskItem) -> some View {
-        HStack(spacing: 4) {
-            Menu {
-                Button("Today") { TaskActions.reschedule(task, to: .today, in: planner) }
-                Button("Tomorrow") { TaskActions.reschedule(task, to: .tomorrow, in: planner) }
-                Button("Next Week") { TaskActions.reschedule(task, to: .nextWeek, in: planner) }
-                Button("No Date") { TaskActions.reschedule(task, to: .none, in: planner) }
-            } label: {
-                if task.due != nil {
-                    Chip(text: TaskFormat.dueText(task, now: now), symbol: task.hasTime ? "clock" : "calendar",
-                         tint: task.isOverdue(now: now) ? .red : .textSecondary)
-                } else {
-                    Chip(text: "Add date", symbol: "calendar", tint: .textTertiary)
-                }
-            }
-            Menu {
-                ForEach(TaskItem.Priority.allCases.reversed(), id: \.self) { p in
-                    Button {
-                        TaskActions.setPriority(task, p, in: planner)
-                    } label: {
-                        if task.priority == p { Label(p.title, systemImage: "checkmark") } else { Text(p.title) }
+    /// One labeled row per property, so the pickers never have to share (and truncate) a line.
+    private func properties(_ task: TaskItem) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            row("Due") {
+                Menu {
+                    Button("Today") { TaskActions.reschedule(task, to: .today, in: planner) }
+                    Button("Tomorrow") { TaskActions.reschedule(task, to: .tomorrow, in: planner) }
+                    Button("Next Week") { TaskActions.reschedule(task, to: .nextWeek, in: planner) }
+                    if task.due != nil {
+                        Divider()
+                        Button("No Date") { TaskActions.reschedule(task, to: .none, in: planner) }
+                    }
+                } label: {
+                    if task.due != nil {
+                        Chip(text: TaskFormat.dueText(task, now: now), symbol: task.hasTime ? "clock" : "calendar",
+                             tint: task.isOverdue(now: now) ? .red : .textSecondary)
+                    } else {
+                        Chip(text: "Add date", symbol: "calendar", tint: .textTertiary)
                     }
                 }
-            } label: {
-                if task.priority != .none {
-                    Chip(text: task.priority.shortTitle, symbol: "flag.fill", tint: task.priority.tint)
-                } else {
-                    Chip(text: "Priority", symbol: "flag", tint: .textTertiary)
+            }
+            row("Priority") {
+                Menu {
+                    ForEach(TaskItem.Priority.allCases.reversed(), id: \.self) { p in
+                        Button {
+                            TaskActions.setPriority(task, p, in: planner)
+                        } label: {
+                            if task.priority == p { Label(p.title, systemImage: "checkmark") } else { Text(p.title) }
+                        }
+                    }
+                } label: {
+                    if task.priority != .none {
+                        Chip(text: task.priority.title, symbol: "flag.fill", tint: task.priority.tint)
+                    } else {
+                        Chip(text: "None", symbol: "flag", tint: .textTertiary)
+                    }
                 }
             }
-            EstimateMenu(minutes: task.estimateMinutes, onSelect: { TaskActions.setEstimate(task, $0, in: planner) }, showsAdjust: true)
-            ForEach(task.tags, id: \.self) { Chip(text: "#\($0)", tint: .textTertiary) }
-            Spacer(minLength: 0)
+            row("Estimate") {
+                EstimateMenu(minutes: task.estimateMinutes, onSelect: { TaskActions.setEstimate(task, $0, in: planner) }, showsAdjust: true)
+            }
+            if !task.tags.isEmpty {
+                row("Tags") {
+                    HStack(spacing: 4) {
+                        ForEach(task.tags, id: \.self) { Chip(text: "#\($0)", tint: .textTertiary) }
+                    }
+                }
+            }
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
-        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func row<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
+        HStack(spacing: 8) {
+            Text(label)
+                .font(Typography.caption)
+                .foregroundStyle(Color.textTertiary)
+                .frame(width: 58, alignment: .leading)
+            content()
+                .fixedSize()
+            Spacer(minLength: 0)
+        }
+        .frame(height: 20)
     }
 
     // MARK: Meta
