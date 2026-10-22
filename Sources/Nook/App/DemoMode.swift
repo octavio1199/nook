@@ -1,6 +1,6 @@
 import AppKit
 
-/// `--demo [open|peek|live|insights]` runs Nook on an in-memory store with sample data, for screenshots.
+/// `--demo [open|peek|live|insights|checkin|checkin-open|checkin-wings]` runs Nook on an in-memory store with sample data, for screenshots.
 enum DemoMode {
     static var scene: String? {
         let args = ProcessInfo.processInfo.arguments
@@ -18,6 +18,11 @@ enum DemoMode {
         var done = TaskItem(title: "Ship v0.1", done: true)
         done.completedAt = now
         store.add(done)
+        store.log(FocusSession(start: now.addingTimeInterval(-3 * 3600), duration: 47 * 60, label: done.title, taskID: done.id))
+        let launch = TaskItem(title: "Draft launch post", due: cal.startOfDay(for: now), priority: .high, tags: ["work"])
+        store.add(launch)
+        store.log(FocusSession(start: now.addingTimeInterval(-26 * 3600), duration: 25 * 60, label: launch.title, taskID: launch.id))
+        store.log(FocusSession(start: now.addingTimeInterval(-2 * 3600), duration: 5 * 60, label: launch.title, taskID: launch.id))
         store.setNote("# Ideas for Nook\n- [x] **Markdown** notepad\n- [ ] drag files onto the notch\n- [ ] Reminders sync\n> ship `v0.2` this week\nSee https://github.com/octavio1199/nook", for: now)
         for day in 0..<7 {
             guard let date = cal.date(byAdding: .day, value: -day, to: now) else { continue }
@@ -37,6 +42,16 @@ enum DemoMode {
                 app.focus.skip()
             case "live":
                 app.focus.startPomodoro(.with(id: "classic"), label: "Write release notes")
+            case "checkin", "checkin-open", "checkin-wings":
+                // Run a 25-min focus on the demo task past its end, as if the time just ran out.
+                guard let task = app.planner.tasks.first(where: { $0.title == "Draft launch post" }) else { break }
+                app.focus.startPomodoro(.with(id: "classic"), label: task.title, taskID: task.id)
+                if scene == "checkin-wings" { app.focus.onAlert = nil }
+                app.focus.tick(at: Date().addingTimeInterval(25 * 60 + 1))
+                if scene == "checkin-open" {
+                    app.notch.open()
+                    app.notch.isPinned = true
+                }
             case "insights":
                 app.notch.open()
                 app.notch.isPinned = true

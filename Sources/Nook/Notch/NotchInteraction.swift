@@ -46,6 +46,8 @@ final class NotchInteraction {
     @ObservationIgnored private var overflow = 0
     @ObservationIgnored private var lastBaseDetail: String?
     @ObservationIgnored private var peekTask: Task<Void, Never>?
+    /// The check-in the user still owes an answer to; comes back as a peek whenever the panel closes.
+    @ObservationIgnored private(set) var pendingCheckIn: NotchAlert?
     @ObservationIgnored private var hoverTask: Task<Void, Never>?
     @ObservationIgnored private var waitingForPointerExit = false
     @ObservationIgnored private var holdingPeek = false
@@ -58,10 +60,34 @@ final class NotchInteraction {
         self.agenda = agenda
         self.geometry = geometry
         self.clock = clock
+        observeDecision()
+    }
+
+    /// Re-arms itself after each change of `focus.awaitingDecision` (observation fires once).
+    private func observeDecision() {
+        withObservationTracking {
+            _ = focus.awaitingDecision
+        } onChange: { [weak self] in
+            // Fires before the new value is stored; read it on the next turn.
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                decisionChanged()
+                observeDecision()
+            }
+        }
+    }
+
+    /// Once the user has decided (from the peek, the panel or the menu bar), the check-in peek has no purpose.
+    private func decisionChanged() {
+        guard !focus.awaitingDecision, let pending = pendingCheckIn else { return }
+        pendingCheckIn = nil
+        queuedAlerts.removeAll { $0.id == pending.id }
+        if queuedAlerts.isEmpty { overflow = 0 }
+        if state == .peek, peekAlert?.id == pending.id { hidePeek(after: .zero) }
     }
 
     var layout: NotchLayout {
-        NotchLayout(geometry: geometry, closedWings: wingWidth)
+        NotchLayout(geometry: geometry, closedWings: wingWidth, peekHasActions: state == .peek && peekAlert?.hasActionRow == true)
     }
 
     var wingWidth: CGFloat {
@@ -69,6 +95,7 @@ final class NotchInteraction {
         case nil: 0
         case .focus:
             focus.phase?.isBreak == true || focus.label?.isEmpty == false ? NotchLayout.labeledWingWidth : NotchLayout.wingWidth
+        case .checkIn: NotchLayout.labeledWingWidth
         case .event: NotchLayout.wingWidth
         }
     }
@@ -76,6 +103,7 @@ final class NotchInteraction {
     /// What the closed notch shows beside the camera, if anything.
     var liveActivity: LiveActivity? {
         guard geometry.hasNotch, settings.showsLiveActivity else { return nil }
+        if focus.awaitingDecision { return .checkIn }
         if focus.isActive { return .focus }
         if let event = agenda.startingSoon { return .event(event) }
         return nil
@@ -225,6 +253,9 @@ final class NotchInteraction {
         pendingCapture = false
         waitingForPointerExit = pointerStaysOver
         withAnimation(Motion.close) { state = .closed }
+        if let pending = pendingCheckIn, focus.awaitingDecision, !queuedAlerts.contains(where: { $0.id == pending.id }) {
+            queuedAlerts.insert(pending, at: 0)
+        }
         showQueuedPeekAfterClose()
     }
 
@@ -255,6 +286,7 @@ final class NotchInteraction {
 
     func enqueue(_ alert: NotchAlert) {
         onFeedback?(alert)
+        if alert.kind == .taskCheckIn { pendingCheckIn = alert }
         queue(alert)
         if state == .closed { showNextPeek() }
     }
@@ -285,10 +317,23 @@ final class NotchInteraction {
             peekAlert = alert
             state = .peek
         }
-        dismissPeek(after: .seconds(4.5))
+        // Sticky alerts wait for the user; everything else fades after a few seconds.
+        if !alert.sticky { dismissPeek(after: .seconds(4.5)) }
     }
 
+    /// Auto-dismiss path: sticky peeks never go away this way, even after the pointer leaves.
     private func dismissPeek(after delay: Duration) {
+        guard peekAlert?.sticky != true else { return }
+        hidePeek(after: delay)
+    }
+
+    /// Explicit dismissal (a "Later" pill, an action taken from the peek): works on sticky peeks too.
+    func dismissPeekNow() {
+        guard state == .peek else { return }
+        hidePeek(after: .zero)
+    }
+
+    private func hidePeek(after delay: Duration) {
         peekTask?.cancel()
         let clock = clock
         peekTask = Task { [weak self] in
@@ -324,5 +369,14 @@ final class NotchInteraction {
 
 enum LiveActivity: Equatable {
     case focus
+    /// A task focus ran out and waits for +5 min / break / done.
+    case checkIn
     case event(AgendaEvent)
+}
+
+extension NotchAlert {
+    /// Peeks that carry action pills need more room.
+    var hasActionRow: Bool {
+        kind == .taskCheckIn || (kind == .breakFinished && taskID != nil)
+    }
 }

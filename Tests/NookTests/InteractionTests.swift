@@ -58,12 +58,12 @@ nonisolated final class ManualClock: Clock, @unchecked Sendable {
 }
 
 @Suite struct InteractionTests {
-    private func makeNotch() -> (NotchInteraction, ManualClock) {
+    private func makeNotch(focus: FocusTimer = FocusTimer()) -> (NotchInteraction, ManualClock) {
         let clock = ManualClock()
         let defaults = UserDefaults(suiteName: "InteractionTests-\(UUID().uuidString)")!
         let notch = NotchInteraction(
             settings: AppSettings(defaults: defaults),
-            focus: FocusTimer(),
+            focus: focus,
             agenda: AgendaModel(),
             geometry: .placeholder,
             clock: clock
@@ -100,6 +100,84 @@ nonisolated final class ManualClock: Clock, @unchecked Sendable {
         #expect(notch.state == .peek)
         #expect(notch.peekAlert?.headline == "Focus done")
         #expect(notch.queuedAlerts.isEmpty)
+    }
+
+    // MARK: Task check-in (sticky peek)
+
+    /// A focus on a task whose time just ran out, wired to the notch like AppDependencies does.
+    private func awaitingCheckIn() -> (NotchInteraction, ManualClock, FocusTimer) {
+        let focus = FocusTimer()
+        let (notch, clock) = makeNotch(focus: focus)
+        focus.onAlert = { notch.enqueue($0) }
+        focus.startPomodoro(.with(id: "classic"), label: "Write report", taskID: UUID())
+        focus.tick(at: focus.now.addingTimeInterval(25 * 60 + 1))
+        return (notch, clock, focus)
+    }
+
+    @Test func stickyCheckInStaysUntilTheDecisionIsMade() async {
+        let (notch, clock, focus) = awaitingCheckIn()
+        #expect(focus.awaitingDecision)
+        #expect(notch.state == .peek)
+        #expect(notch.peekAlert?.kind == .taskCheckIn)
+        #expect(notch.liveActivity == nil || notch.liveActivity == .checkIn)
+
+        await settle()
+        clock.advance(by: .seconds(60))
+        await settle()
+        #expect(notch.state == .peek)
+
+        // Hovering in and out doesn't start the dismiss timer either.
+        let rect = notch.layout.hitRect(for: .peek)
+        notch.mouseMoved(to: NSPoint(x: rect.midX, y: rect.midY))
+        notch.mouseMoved(to: far)
+        await settle()
+        clock.advance(by: .seconds(10))
+        await settle()
+        #expect(notch.state == .peek)
+
+        focus.extend(minutes: 5)
+        await settle()
+        #expect(notch.state == .closed)
+        #expect(notch.pendingCheckIn == nil)
+    }
+
+    @Test func plainPeekStillAutoDismisses() async {
+        let (notch, clock) = makeNotch()
+        notch.enqueue(alert("Hello"))
+        #expect(notch.state == .peek)
+        await settle()
+        clock.advance(by: .seconds(5))
+        await settle()
+        #expect(notch.state == .closed)
+    }
+
+    @Test func checkInPeeksAgainWhenThePanelClosesWhileStillAwaiting() async {
+        let (notch, clock, focus) = awaitingCheckIn()
+        notch.open()
+        #expect(notch.state == .open)
+        notch.close()
+        await settle()
+        clock.advance(by: .milliseconds(600))
+        await settle()
+        #expect(notch.state == .peek)
+        #expect(notch.peekAlert?.kind == .taskCheckIn)
+
+        // Deciding while the panel is open means nothing comes back after closing.
+        notch.open()
+        focus.finishTask()
+        await settle()
+        notch.close()
+        await settle()
+        clock.advance(by: .milliseconds(600))
+        await settle()
+        #expect(notch.state == .closed)
+    }
+
+    @Test func checkInPeekIsWiderForItsActions() {
+        let (notch, _, _) = awaitingCheckIn()
+        let plain = NotchLayout(geometry: notch.geometry).size(for: .peek)
+        #expect(notch.layout.size(for: .peek).width > plain.width)
+        #expect(notch.layout.size(for: .peek).height == plain.height)
     }
 
     @Test func queueKeepsThreeAndCoalescesExtras() {

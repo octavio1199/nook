@@ -9,6 +9,19 @@ enum OpenMode: String, CaseIterable, Identifiable {
     var title: String { self == .hover ? "Hover" : "Click" }
 }
 
+enum SystemNotificationPolicy: String, CaseIterable, Identifiable {
+    case off, whenAway, always
+
+    var id: Self { self }
+    var title: String {
+        switch self {
+        case .off: "Off"
+        case .whenAway: "When I'm away"
+        case .always: "Always"
+        }
+    }
+}
+
 @Observable
 final class AppSettings {
     @ObservationIgnored private let defaults: UserDefaults
@@ -21,6 +34,7 @@ final class AppSettings {
     var focusPresetID: String { didSet { defaults.set(focusPresetID, forKey: "focusPresetID") } }
     var autoStartBreaks: Bool { didSet { defaults.set(autoStartBreaks, forKey: "autoStartBreaks") } }
     var eventAlertMinutes: Int { didSet { defaults.set(eventAlertMinutes, forKey: "eventAlertMinutes") } }
+    var systemNotifications: SystemNotificationPolicy { didSet { defaults.set(systemNotifications.rawValue, forKey: "systemNotifications") } }
     var showsAgenda: Bool { didSet { defaults.set(showsAgenda, forKey: "showsAgenda") } }
 
     var launchAtLogin: Bool {
@@ -40,6 +54,7 @@ final class AppSettings {
         focusPresetID = defaults.string(forKey: "focusPresetID") ?? "classic"
         autoStartBreaks = defaults.object(forKey: "autoStartBreaks") as? Bool ?? true
         eventAlertMinutes = defaults.object(forKey: "eventAlertMinutes") as? Int ?? 5
+        systemNotifications = SystemNotificationPolicy(rawValue: defaults.string(forKey: "systemNotifications") ?? "") ?? .whenAway
         showsAgenda = defaults.object(forKey: "showsAgenda") as? Bool ?? true
     }
 }

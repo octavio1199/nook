@@ -31,6 +31,7 @@ struct SettingsView: View {
             GeneralPage().tabItem { Label("General", systemImage: "gearshape") }
             AppearancePage().tabItem { Label("Appearance", systemImage: "paintbrush") }
             FocusPage().tabItem { Label("Focus", systemImage: "timer") }
+            NotificationsPage().tabItem { Label("Notifications", systemImage: "bell") }
             CalendarPage().tabItem { Label("Calendar", systemImage: "calendar") }
             DataPage().tabItem { Label("Data", systemImage: "externaldrive") }
             AboutPage().tabItem { Label("About", systemImage: "info.circle") }
@@ -103,6 +104,45 @@ private struct FocusPage: View {
             Toggle("Live activity in the notch", isOn: $settings.showsLiveActivity)
         }
         .formStyle(.grouped)
+    }
+}
+
+private struct NotificationsPage: View {
+    @Environment(AppSettings.self) private var settings
+    @Environment(SystemNotifier.self) private var notifier
+
+    var body: some View {
+        @Bindable var settings = settings
+        Form {
+            Picker("Show macOS notifications", selection: $settings.systemNotifications) {
+                ForEach(SystemNotificationPolicy.allCases) { Text($0.title).tag($0) }
+            }
+            Text(settings.systemNotifications == .whenAway
+                ? "Only when the notch can't be seen: screen locked, display asleep, another app full screen, or right after waking."
+                : settings.systemNotifications == .always
+                    ? "Every alert also appears as a macOS notification."
+                    : "Alerts only appear in the notch.")
+                .font(.callout).foregroundStyle(.secondary)
+            LabeledContent("Permission") {
+                switch notifier.authorization {
+                case .authorized: Label("Allowed", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+                case .denied: Label("Blocked in System Settings", systemImage: "xmark.circle.fill").foregroundStyle(.red)
+                case .notDetermined: Label("Not asked yet", systemImage: "circle.dashed").foregroundStyle(.secondary)
+                case .unknown: Text("Checking…").foregroundStyle(.secondary)
+                }
+            }
+            switch notifier.authorization {
+            case .notDetermined, .unknown: Button("Allow notifications", action: notifier.requestAuthorizationIfNeeded)
+            case .denied: Button("Open System Settings", action: notifier.openSystemSettings)
+            case .authorized: EmptyView()
+            }
+            Button("Send test notification", action: notifier.sendTest)
+        }
+        .formStyle(.grouped)
+        .onAppear { Task { await notifier.refreshAuthorization() } }
+        .onChange(of: settings.systemNotifications) { _, policy in
+            if policy != .off { notifier.requestAuthorizationIfNeeded() }
+        }
     }
 }
 

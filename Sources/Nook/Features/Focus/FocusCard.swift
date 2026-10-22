@@ -6,9 +6,12 @@ struct FocusCard: View {
     @Environment(PlannerStore.self) private var planner
 
     var body: some View {
-        Card("Focus", symbol: "timer", trailing: focus.isActive ? AnyView(statusDot) : nil) {
+        Card("Focus", symbol: "timer", trailing: focus.isActive || focus.awaitingDecision ? AnyView(statusDot) : nil) {
             ZStack {
-                if focus.isActive {
+                if focus.awaitingDecision {
+                    CheckInView()
+                        .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                } else if focus.isActive {
                     ActiveFocusView()
                         .transition(.opacity.combined(with: .scale(scale: 0.96)))
                 } else {
@@ -18,6 +21,7 @@ struct FocusCard: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .animation(Motion.navigate, value: focus.isActive)
+            .animation(Motion.navigate, value: focus.awaitingDecision)
         }
         .frame(minWidth: 230, idealWidth: 230, minHeight: 170, idealHeight: 170)
     }
@@ -105,6 +109,56 @@ struct FocusCard: View {
         }
         .padding(2)
         .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Color.surface))
+    }
+}
+
+// MARK: - Check-in
+
+/// Shown when a focus on a task ran out: how long it took so far and what to do next.
+private struct CheckInView: View {
+    @Environment(FocusTimer.self) private var focus
+    @Environment(PlannerStore.self) private var planner
+
+    var body: some View {
+        let spent = focus.taskID.map { planner.focusTime(for: $0) } ?? 0
+        let title = planner.task(focus.taskID)?.title ?? focus.label
+        VStack(spacing: 8) {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "timer")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Color.focus)
+                    .frame(width: 32, height: 32)
+                    .background(Circle().fill(Color.focus.opacity(0.18)))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Time's up")
+                        .font(Typography.title)
+                        .foregroundStyle(Color.focus)
+                    if let title {
+                        Text(title)
+                            .font(Typography.caption)
+                            .foregroundStyle(Color.textPrimary)
+                            .lineLimit(2)
+                    }
+                    Text("\(TaskTime.text(spent)) so far")
+                        .font(Typography.micro)
+                        .monospacedDigit()
+                        .foregroundStyle(Color.textSecondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Button { focus.dismissCheckIn() } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(Color.textTertiary)
+                        .frame(width: 16, height: 16)
+                        .background(Circle().fill(Color.surface))
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .help("Not now")
+            }
+            Spacer(minLength: 0)
+            CheckInActions(style: .large)
+        }
     }
 }
 

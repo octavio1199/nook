@@ -9,6 +9,8 @@ struct NotchLayout {
 
     let geometry: NotchGeometry
     var closedWings: CGFloat = 0
+    /// The peek carries action pills (task check-in), so it is wider than a plain notification.
+    var peekHasActions = false
 
     func size(for state: NotchState) -> CGSize {
         let notch = geometry.notchSize
@@ -16,7 +18,8 @@ struct NotchLayout {
         case .closed:
             return CGSize(width: notch.width + closedWings * 2, height: notch.height)
         case .peek:
-            return CGSize(width: max(notch.width + 200, 420), height: notch.height + 56)
+            let width = peekHasActions ? max(notch.width + 340, 560) : max(notch.width + 200, 420)
+            return CGSize(width: width, height: notch.height + 56)
         case .open:
             return CGSize(width: max(notch.width + 560, 780), height: notch.height + 380)
         }

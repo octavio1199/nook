@@ -395,8 +395,11 @@ private struct TaskRow: View {
 
     private var isFocused: Bool { focus.isActive && focus.taskID == task.id }
 
+    /// Focus time logged against this task (nil under a minute).
+    private var timeText: String? { TaskTime.chip(planner.focusTime(for: task.id)) }
+
     private var hasChips: Bool {
-        task.due != nil || task.priority != .none || !task.tags.isEmpty
+        task.due != nil || task.priority != .none || !task.tags.isEmpty || timeText != nil
     }
 
     private var checkbox: some View {
@@ -449,6 +452,15 @@ private struct TaskRow: View {
     }
 
     private var chips: some View {
+        // Narrow column: if everything doesn't fit, the tags go rather than getting squeezed.
+        ViewThatFits(in: .horizontal) {
+            chipRow(withTags: true)
+            chipRow(withTags: false)
+        }
+        .opacity(task.done ? 0.65 : 1)
+    }
+
+    private func chipRow(withTags: Bool) -> some View {
         HStack(spacing: 4) {
             if task.due != nil {
                 let overdue = task.isOverdue(now: now)
@@ -459,9 +471,14 @@ private struct TaskRow: View {
             if task.priority != .none {
                 Chip(text: task.priority.shortTitle, symbol: "flag.fill", tint: task.priority.tint)
             }
-            ForEach(task.tags, id: \.self) { Chip(text: "#\($0)", tint: .textTertiary) }
+            if let timeText {
+                Chip(text: task.done ? "took \(timeText)" : timeText, symbol: "stopwatch", tint: task.done ? .rest : .focus)
+            }
+            if withTags {
+                ForEach(task.tags, id: \.self) { Chip(text: "#\($0)", tint: .textTertiary) }
+            }
         }
-        .opacity(task.done ? 0.5 : 1)
+        .fixedSize(horizontal: true, vertical: false)
     }
 
     // MARK: Editing

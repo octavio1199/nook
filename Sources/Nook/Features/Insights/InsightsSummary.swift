@@ -10,6 +10,18 @@ nonisolated struct InsightsSummary: Equatable {
         var isActive: Bool { focusMinutes > 0 || tasksDone > 0 }
     }
 
+    struct TaskTotal: Identifiable, Equatable {
+        var id: UUID
+        var title: String
+        var duration: TimeInterval
+        var sessions: Int
+        var done: Bool
+    }
+
+    /// Time spent per task over the last 7 days, longest first (at most `topTaskLimit`).
+    var taskTimes: [TaskTotal] = []
+    static let topTaskLimit = 5
+
     /// Last 7 days, oldest first, ending today.
     var days: [Day] = []
     var tasksDoneToday = 0
@@ -63,6 +75,29 @@ nonisolated struct InsightsSummary: Equatable {
 
         bestDay = days.filter(\.isActive).max {
             ($0.focusMinutes, $0.tasksDone) < ($1.focusMinutes, $1.tasksDone)
+        }
+
+        // Time per task: sessions of the last 7 days that belong to a task, grouped by task.
+        if let weekStart = days.first?.date {
+            var byTask: [UUID: (duration: TimeInterval, sessions: Int, label: String?)] = [:]
+            for session in sessions where session.start >= weekStart {
+                guard let id = session.taskID else { continue }
+                var entry = byTask[id] ?? (0, 0, nil)
+                entry.duration += session.duration
+                entry.sessions += 1
+                entry.label = session.label ?? entry.label
+                byTask[id] = entry
+            }
+            let titles = Dictionary(tasks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            taskTimes = byTask
+                .map { id, entry in
+                    TaskTotal(id: id, title: titles[id]?.title ?? entry.label ?? "Deleted task",
+                             duration: entry.duration, sessions: entry.sessions, done: titles[id]?.done ?? false)
+                }
+                .filter { $0.duration >= TaskTime.minimum }
+                .sorted { ($0.duration, $1.title) > ($1.duration, $0.title) }
+                .prefix(Self.topTaskLimit)
+                .map { $0 }
         }
         mostFocusedHour = focusByHour.max { $0.value < $1.value }?.key
     }

@@ -32,14 +32,14 @@ final class TaskDueWatcher {
         // After a wake (or any long gap) don't fire one peek per stale task.
         if now.timeIntervalSince(previous) > Self.staleGap {
             if due.count == 1, let task = due.first {
-                onAlert?(NotchAlert(kind: .taskDue, symbol: "bell.fill", tint: .accent, headline: task.title, detail: "Became due while you were away"))
+                onAlert?(NotchAlert(kind: .taskDue, symbol: "bell.fill", tint: .accent, headline: task.title, detail: "Became due while you were away", taskID: task.id))
             } else {
                 onAlert?(NotchAlert(kind: .taskDue, symbol: "bell.fill", tint: .accent, headline: "\(due.count) tasks became due", detail: nil))
             }
             return
         }
         for task in due {
-            onAlert?(NotchAlert(kind: .taskDue, symbol: "bell.fill", tint: .accent, headline: task.title, detail: "Due now"))
+            onAlert?(NotchAlert(kind: .taskDue, symbol: "bell.fill", tint: .accent, headline: task.title, detail: "Due now", taskID: task.id))
         }
     }
 }

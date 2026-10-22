@@ -7,6 +7,7 @@ struct LiveActivityWings: View {
 
     @Environment(FocusTimer.self) private var focus
     @Environment(NotchInteraction.self) private var notch
+    @Environment(PlannerStore.self) private var planner
 
     var body: some View {
         HStack(spacing: 0) {
@@ -23,6 +24,12 @@ struct LiveActivityWings: View {
 
     @ViewBuilder private var leftWing: some View {
         switch activity {
+        case .checkIn:
+            Text("⏰ \(planner.task(focus.taskID)?.title ?? focus.label ?? "Focus")")
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundStyle(Color.white.opacity(0.9))
+                .lineLimit(1)
+                .truncationMode(.tail)
         case .focus where focus.phase?.isBreak == true:
             BreakTipLine(long: focus.phase == .longBreak)
         case .focus:
@@ -70,6 +77,14 @@ struct LiveActivityWings: View {
 
     @ViewBuilder private var rightWing: some View {
         switch activity {
+        case .checkIn:
+            HStack(spacing: 5) {
+                PulsingDot(tint: .focus)
+                Text("Time's up")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color.focus)
+                    .lineLimit(1)
+            }
         case .focus:
             Text(focus.displayText)
                 .font(.system(size: 12, weight: .semibold))
@@ -106,6 +121,23 @@ struct BreakTipLine: View {
                 .id(tip.id)
                 .transition(.opacity)
                 .animation(Motion.fade, value: tip.id)
+        }
+    }
+}
+
+/// A dot that breathes slowly, to say "waiting on you" without shouting.
+struct PulsingDot: View {
+    var tint: Color
+
+    var body: some View {
+        TimelineView(.animation) { context in
+            let phase = context.date.timeIntervalSinceReferenceDate * 2.4
+            let wave = (sin(phase) + 1) / 2
+            Circle()
+                .fill(tint)
+                .frame(width: 7, height: 7)
+                .opacity(0.55 + 0.45 * wave)
+                .scaleEffect(0.85 + 0.25 * wave)
         }
     }
 }

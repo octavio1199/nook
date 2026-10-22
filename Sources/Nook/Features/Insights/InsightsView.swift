@@ -16,15 +16,21 @@ struct InsightsView: View {
                 }
                 .frame(height: 78)
 
-                Card("Last 7 days", symbol: "chart.bar.xaxis", trailing: AnyView(Legend())) {
-                    HStack(alignment: .top, spacing: 16) {
-                        WeekChart(days: summary.days)
-                        VStack(alignment: .leading, spacing: 10) {
-                            Highlight(symbol: "star.fill", title: "Best day", value: Self.bestDay(summary))
-                            Highlight(symbol: "sun.max.fill", title: "Most focused hour", value: Self.hour(summary.mostFocusedHour))
+                HStack(spacing: 10) {
+                    Card("Last 7 days", symbol: "chart.bar.xaxis", trailing: AnyView(Legend())) {
+                        HStack(alignment: .top, spacing: 14) {
+                            WeekChart(days: summary.days)
+                            VStack(alignment: .leading, spacing: 10) {
+                                Highlight(symbol: "star.fill", title: "Best day", value: Self.bestDay(summary))
+                                Highlight(symbol: "sun.max.fill", title: "Most focused hour", value: Self.hour(summary.mostFocusedHour))
+                            }
+                            .frame(width: 150, alignment: .leading)
                         }
-                        .frame(width: 200, alignment: .leading)
                     }
+                    Card("Time per task", symbol: "stopwatch") {
+                        TaskTimeList(totals: summary.taskTimes)
+                    }
+                    .frame(width: 270)
                 }
             }
         }
@@ -139,5 +145,45 @@ private struct WeekChart: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// Top tasks of the week by focus time: title, duration and a bar relative to the longest.
+struct TaskTimeList: View {
+    var totals: [InsightsSummary.TaskTotal]
+
+    var body: some View {
+        if totals.isEmpty {
+            Text("Focus on a task and its time shows up here.")
+                .font(Typography.caption)
+                .foregroundStyle(Color.textTertiary)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        } else {
+            let longest = max(totals.map(\.duration).max() ?? 1, 1)
+            VStack(spacing: 7) {
+                ForEach(totals) { total in
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 6) {
+                            Text(total.title)
+                                .font(Typography.caption)
+                                .foregroundStyle(total.done ? Color.textSecondary : Color.textPrimary)
+                                .lineLimit(1)
+                            Spacer(minLength: 4)
+                            Text(TaskTime.text(total.duration))
+                                .font(Typography.caption)
+                                .monospacedDigit()
+                                .foregroundStyle(Color.textSecondary)
+                        }
+                        GeometryReader { proxy in
+                            Capsule().fill(Color.focus.opacity(total.done ? 0.45 : 0.85))
+                                .frame(width: max(proxy.size.width * total.duration / longest, 3))
+                        }
+                        .frame(height: 3)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        }
     }
 }

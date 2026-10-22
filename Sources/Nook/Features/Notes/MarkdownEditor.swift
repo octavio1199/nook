@@ -462,7 +462,26 @@ final class WrappingScrollView: NSScrollView {
 
     override func tile() {
         super.tile()
-        guard wraps, let doc = documentView, contentSize.width > 0, doc.frame.width != contentSize.width else { return }
-        doc.setFrameSize(NSSize(width: contentSize.width, height: doc.frame.height))
+        syncDocumentWidth()
+    }
+
+    override func layout() {
+        super.layout()
+        syncDocumentWidth()
+    }
+
+    /// SwiftUI can resize the column without a tile pass, so sync on layout too, and keep the
+    /// text container in step even if the text view frame already matches.
+    private func syncDocumentWidth() {
+        guard wraps, let doc = documentView as? NSTextView, contentSize.width > 0 else { return }
+        if doc.frame.width != contentSize.width {
+            doc.setFrameSize(NSSize(width: contentSize.width, height: doc.frame.height))
+        }
+        if let container = doc.textContainer {
+            let width = contentSize.width - doc.textContainerInset.width * 2
+            if abs(container.containerSize.width - width) > 0.5 {
+                container.containerSize = NSSize(width: width, height: CGFloat.greatestFiniteMagnitude)
+            }
+        }
     }
 }

@@ -10,6 +10,7 @@ final class AppDependencies {
     let notch: NotchInteraction
     let dueWatcher: TaskDueWatcher
     let workspace = WorkspaceState()
+    let notifier: SystemNotifier
     /// The status item's menu; its tracking must not hold the open panel.
     weak var statusMenu: NSMenu?
     private var dayObservers: [NSObjectProtocol] = []
@@ -20,6 +21,8 @@ final class AppDependencies {
         let geometry = NotchGeometry.notchedScreen.map(NotchGeometry.init(screen:)) ?? .placeholder
         notch = NotchInteraction(settings: settings, focus: focus, agenda: agenda, geometry: geometry)
         dueWatcher = TaskDueWatcher(planner: planner)
+        notifier = SystemNotifier(settings: settings, focus: focus, planner: planner, agenda: agenda, notch: notch)
+        notifier.isEnabled = DemoMode.scene == nil
 
         let settings = settings
         focus.autoStartBreaks = { settings.autoStartBreaks }
@@ -32,7 +35,8 @@ final class AppDependencies {
         focus.onAlert = { [weak notch] in notch?.enqueue($0) }
         agenda.onAlert = { [weak notch] in notch?.enqueue($0) }
         dueWatcher.onAlert = { [weak notch] in notch?.enqueue($0) }
-        notch.onFeedback = { _ in
+        notch.onFeedback = { [notifier] alert in
+            notifier.post(alert)
             if settings.playsSounds { NSSound(named: "Glass")?.play() }
             if settings.haptics { NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now) }
         }
@@ -65,6 +69,7 @@ final class AppDependencies {
             .environment(agenda)
             .environment(notch)
             .environment(workspace)
+            .environment(notifier)
             .environment(\.openSettings, OpenNookSettings { [weak self] in self?.openSettings() })
     }
 

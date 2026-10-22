@@ -13,6 +13,7 @@ struct TaskDetailView: View {
     @LocalState private var titleDraft = ""
     @LocalState private var loaded = false
     @LocalState private var linkHover = false
+    @LocalState private var showSessions = false
     @FocusState private var titleFocused: Bool
 
     var body: some View {
@@ -176,15 +177,14 @@ struct TaskDetailView: View {
 
     @ViewBuilder
     private func meta(_ task: TaskItem) -> some View {
-        let logged = TaskActions.focusTimeText(planner.focusTime(for: task.id))
+        let sessions = planner.sessions.filter { $0.taskID == task.id }.sorted { $0.start > $1.start }
+        let total = sessions.reduce(0) { $0 + $1.duration }
+        let logged = TaskTime.chip(total)
         let source = task.sourceDay.flatMap { key in TaskActions.dayText(key).map { (key, $0) } }
         if logged != nil || source != nil {
             VStack(alignment: .leading, spacing: 4) {
                 if let logged {
-                    Label(logged, systemImage: "timer")
-                        .font(Typography.caption)
-                        .foregroundStyle(Color.textSecondary)
-                        .labelStyle(TightLabelStyle())
+                    sessionsSummary(logged: logged, done: task.done, sessions: sessions)
                 }
                 if let (key, text) = source {
                     Button {
@@ -200,6 +200,48 @@ struct TaskDetailView: View {
                     .onHover { linkHover = $0 }
                     .animation(Motion.hover, value: linkHover)
                 }
+            }
+        }
+    }
+
+    /// "1h 05m focused · 3 sessions", expandable into the sessions behind the total.
+    private func sessionsSummary(logged: String, done: Bool, sessions: [FocusSession]) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Button {
+                withAnimation(Motion.navigate) { showSessions.toggle() }
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "stopwatch").font(.system(size: 9, weight: .semibold)).frame(width: 12)
+                    Text(done ? "Took \(logged)" : "\(logged) focused")
+                    Text("· \(sessions.count) \(sessions.count == 1 ? "session" : "sessions")").foregroundStyle(Color.textTertiary)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 7, weight: .bold))
+                        .foregroundStyle(Color.textTertiary)
+                        .rotationEffect(.degrees(showSessions ? 180 : 0))
+                }
+                .font(Typography.caption)
+                .foregroundStyle(Color.textSecondary)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            if showSessions {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(sessions.prefix(4)) { session in
+                        HStack(spacing: 6) {
+                            Text(session.start.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated).hour().minute()))
+                            Spacer(minLength: 8)
+                            Text(TaskTime.text(session.duration)).monospacedDigit()
+                        }
+                        .font(Typography.micro)
+                        .foregroundStyle(Color.textSecondary)
+                    }
+                    if sessions.count > 4 {
+                        Text("+\(sessions.count - 4) earlier").font(Typography.micro).foregroundStyle(Color.textTertiary)
+                    }
+                }
+                .padding(.leading, 17)
+                .frame(maxWidth: 260, alignment: .leading)
+                .transition(.opacity)
             }
         }
     }

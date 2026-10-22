@@ -8,6 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         MainMenu.install()
         let app = DemoMode.scene == nil ? AppDependencies() : AppDependencies(planner: DemoMode.makeStore())
+        app.notifier.activate() // delegate must be set before launch ends so action taps are delivered
         let panel = NotchPanelController(app: app)
         panel.startListening()
         statusItem = StatusItemController(app: app)

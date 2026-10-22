@@ -7,6 +7,7 @@ struct PeekView: View {
     @Environment(FocusTimer.self) private var focus
     @Environment(AppSettings.self) private var settings
     @Environment(PlannerStore.self) private var planner
+    @Environment(NotchInteraction.self) private var notch
 
     var body: some View {
         HStack(spacing: 10) {
@@ -43,6 +44,22 @@ struct PeekView: View {
                 .buttonStyle(.plain)
                 .transition(.opacity.combined(with: .scale(scale: 0.9)))
             }
+            if alert.kind == .taskCheckIn {
+                CheckInActions(style: .compact)
+            } else if alert.kind == .breakFinished, alert.taskID != nil {
+                Button {
+                    notch.dismissPeekNow()
+                } label: {
+                    Text("Later")
+                        .font(Typography.caption)
+                        .foregroundStyle(Color.textSecondary)
+                        .padding(.horizontal, 10)
+                        .frame(height: 26)
+                        .background(Capsule().fill(Color.surfaceRaised))
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+            }
             if let action {
                 Button(action: action.run) {
                     Text(action.title)
@@ -66,6 +83,9 @@ struct PeekView: View {
     /// Adds the break emoji row to "Focus done" while a break is running, and 💪 to "Break over".
     private func detailText(_ detail: String) -> String {
         switch alert.kind {
+        case .taskCheckIn:
+            let spent = alert.taskID.map { planner.focusTime(for: $0) } ?? 0
+            return "Time's up · \(TaskTime.text(spent)) so far"
         case .focusFinished where focus.phase?.isBreak == true:
             return "\(detail) \(BreakTips.emojiRow)"
         case .breakFinished:
@@ -98,7 +118,10 @@ struct PeekView: View {
             guard alert.symbol != "timer" else { return nil }
             return PillAction(title: "Start break") { focus.startBreak() }
         case .breakFinished:
-            return PillAction(title: "Start focus") { focus.startNextFocus() }
+            return PillAction(title: alert.taskID == nil ? "Start focus" : "Continue") {
+                focus.startNextFocus()
+                if alert.taskID != nil { notch.dismissPeekNow() }
+            }
         case .focusPaused:
             guard focus.isPaused else { return nil }
             return PillAction(title: "Resume") { focus.resume() }
