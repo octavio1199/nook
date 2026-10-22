@@ -1,0 +1,9 @@
+.build/
+build/
+*.app
+.DS_Store
+.swiftpm/
+
+# Local only
+research/
+docs/media/real-*.png
