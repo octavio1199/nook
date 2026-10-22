@@ -45,7 +45,7 @@ struct NotesColumn: View {
     private var toolbar: some View {
         HStack(spacing: 4) {
             toolButton("face.smiling", help: "Emoji (⌃⌘Space)", active: false) { NSApp.orderFrontCharacterPalette(nil) }
-            toolButton("text.word.spacing", help: wrapLines ? "Line wrap: on" : "Line wrap: off", active: wrapLines) { wrapLines.toggle() }
+            wrapToggle
             Button { showHints.toggle() } label: {
                 Text("Aa")
                     .font(.system(size: 9.5, weight: .bold))
@@ -58,6 +58,31 @@ struct NotesColumn: View {
             .popover(isPresented: $showHints, arrowEdge: .bottom) { hints }
             dayPicker
         }
+    }
+
+    /// A labeled pill so the state is obvious: filled when long lines wrap, outlined when they scroll sideways.
+    private var wrapToggle: some View {
+        Button {
+            withAnimation(Motion.hover) { wrapLines.toggle() }
+        } label: {
+            HStack(spacing: 3) {
+                Image(systemName: wrapLines ? "arrow.turn.down.left" : "arrow.right")
+                    .font(.system(size: 8, weight: .bold))
+                Text("Wrap")
+                    .font(.system(size: 9.5, weight: .semibold))
+            }
+            .foregroundStyle(wrapLines ? Color.accent : Color.textTertiary)
+            .padding(.horizontal, 6)
+            .frame(height: 18)
+            .background(Capsule().fill(wrapLines ? Color.accent.opacity(0.16) : .clear))
+            .overlay(Capsule().strokeBorder(wrapLines ? Color.clear : Color.hairline))
+            .contentShape(Capsule())
+            .fixedSize()
+        }
+        .buttonStyle(.plain)
+        .help(wrapLines ? "Line wrap is on: long lines wrap. Click to turn off." : "Line wrap is off: long lines scroll sideways. Click to turn on.")
+        .accessibilityLabel("Line wrap")
+        .accessibilityValue(wrapLines ? "On" : "Off")
     }
 
     private func toolButton(_ symbol: String, help: String, active: Bool, action: @escaping () -> Void) -> some View {

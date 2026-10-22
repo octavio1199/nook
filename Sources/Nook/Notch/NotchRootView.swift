@@ -28,6 +28,9 @@ struct NotchRootView: View {
             if state == .closed, let live = notch.liveActivity {
                 LiveActivityWings(activity: live, notchWidth: notch.geometry.notchSize.width, height: notch.geometry.notchSize.height)
                     .transition(.opacity)
+            } else if state == .open {
+                NotchHeaderBar()
+                    .transition(.reveal(delay: 0.07))
             } else {
                 Color.clear.frame(height: notch.geometry.notchSize.height)
             }
@@ -95,7 +98,7 @@ struct ExpandedView: View {
             }
         }
         .padding(.horizontal, 14)
-        .padding(.top, 6)
+        .padding(.top, 2)
         .padding(.bottom, 14)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }

@@ -3,11 +3,9 @@ import SwiftUI
 
 struct WorkspaceView: View {
     @Environment(AppSettings.self) private var settings
-    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         VStack(spacing: 10) {
-            WorkspaceHeader(openSettings: openSettings.callAsFunction)
             HStack(alignment: .top, spacing: 10) {
                 TasksColumn()
                     .frame(maxWidth: .infinity)
@@ -23,53 +21,52 @@ struct WorkspaceView: View {
     }
 }
 
-private struct WorkspaceHeader: View {
+/// The open panel's header lives in the strip beside the camera, which is otherwise empty:
+/// date on the left of the notch, pin / settings / quit on the right.
+struct NotchHeaderBar: View {
     @Environment(NotchInteraction.self) private var notch
-    var openSettings: () -> Void
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
-        TimelineView(.everyMinute) { context in
-            HStack(spacing: 8) {
-                Text(context.date.formatted(.dateTime.weekday(.wide).day().month(.wide)))
-                    .font(Typography.title)
-                    .foregroundStyle(Color.textPrimary)
-                Text(Self.greeting(for: context.date))
-                    .font(Typography.caption)
-                    .foregroundStyle(Color.textTertiary)
-                Spacer()
-                Button {
-                    notch.isPinned.toggle()
-                } label: {
-                    Image(systemName: notch.isPinned ? "pin.fill" : "pin")
-                        .font(.system(size: 12))
-                        .foregroundStyle(notch.isPinned ? Color.accent : Color.textSecondary)
-                        .frame(width: 24, height: 24)
-                        .contentShape(Rectangle())
+        let notchWidth = notch.geometry.notchSize.width
+        HStack(spacing: 0) {
+            TimelineView(.everyMinute) { context in
+                HStack(spacing: 7) {
+                    Text(context.date.formatted(.dateTime.weekday(.wide).day().month(.wide)))
+                        .font(Typography.title)
+                        .foregroundStyle(Color.textPrimary)
+                    Text(Self.greeting(for: context.date))
+                        .font(Typography.caption)
+                        .foregroundStyle(Color.textTertiary)
                 }
-                .buttonStyle(.plain)
-                .help(notch.isPinned ? "Unpin" : "Keep open")
-                Button(action: openSettings) {
-                    Image(systemName: "gearshape.fill")
-                        .font(.system(size: 12))
-                        .foregroundStyle(Color.textSecondary)
-                        .frame(width: 24, height: 24)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help("Settings")
-                Button {
-                    NSApp.terminate(nil)
-                } label: {
-                    Image(systemName: "power")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(Color.textSecondary)
-                        .frame(width: 24, height: 24)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help("Quit Nook")
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            // Keep the camera area clear (plus a little breathing room).
+            Color.clear.frame(width: notch.geometry.hasNotch ? notchWidth + 24 : 24)
+            HStack(spacing: 2) {
+                icon(notch.isPinned ? "pin.fill" : "pin", tint: notch.isPinned ? .accent : .textSecondary,
+                     help: notch.isPinned ? "Unpin" : "Keep open") { notch.isPinned.toggle() }
+                icon("gearshape.fill", help: "Settings") { openSettings() }
+                icon("power", help: "Quit Nook") { NSApp.terminate(nil) }
+            }
+            .frame(maxWidth: .infinity, alignment: .trailing)
         }
+        .padding(.horizontal, 14)
+        .frame(height: notch.geometry.notchSize.height)
+    }
+
+    private func icon(_ symbol: String, tint: Color = .textSecondary, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(width: 26, height: 24)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
     }
 
     static func greeting(for date: Date) -> String {
