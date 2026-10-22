@@ -36,6 +36,10 @@ struct TaskItem: Identifiable, Codable, Equatable, Hashable {
     var sourceLine: String?
     /// Set when the task is archived (soft-deleted); archived tasks can be restored.
     var archivedAt: Date?
+    /// How long the user expects the task to take, in minutes (drives progress and time blocking).
+    var estimateMinutes: Int?
+    /// Start of the time block planned for this task (time blocking); its length is the estimate.
+    var scheduledStart: Date?
 }
 
 extension TaskItem {
@@ -70,5 +74,7 @@ extension TaskItem {
         sourceDay = try? c.decodeIfPresent(String.self, forKey: .sourceDay)
         sourceLine = try? c.decodeIfPresent(String.self, forKey: .sourceLine)
         archivedAt = try? c.decodeIfPresent(Date.self, forKey: .archivedAt)
+        estimateMinutes = try? c.decodeIfPresent(Int.self, forKey: .estimateMinutes)
+        scheduledStart = try? c.decodeIfPresent(Date.self, forKey: .scheduledStart)
     }
 }
