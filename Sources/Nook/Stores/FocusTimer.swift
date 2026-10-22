@@ -49,10 +49,16 @@ final class FocusTimer {
     private(set) var completedInCycle = 0
     private(set) var now = Date()
     private(set) var preset = FocusPreset.all[0]
+    /// A focus on a task ended and is waiting for the user: +5 min, break then continue, or done.
+    private(set) var awaitingDecision = false
+    /// After the current break, offer to continue with the same task.
+    private(set) var continuesTaskAfterBreak = false
 
     @ObservationIgnored var onAlert: ((NotchAlert) -> Void)?
     @ObservationIgnored var onSessionLogged: ((FocusSession) -> Void)?
     @ObservationIgnored var autoStartBreaks: () -> Bool = { true }
+    /// Called with the task id when the user marks the focused task done from the check-in.
+    @ObservationIgnored var onTaskFinished: ((UUID) -> Void)?
 
     @ObservationIgnored private var startedAt: Date?
     @ObservationIgnored private var accumulated: TimeInterval = 0
@@ -141,6 +147,36 @@ final class FocusTimer {
         begin(.focus, minutes: preset.focus, label: label ?? self.label, taskID: taskID)
     }
 
+    // MARK: - Task check-in
+
+    /// Keep going on the same task for a few more minutes (a new session, same task).
+    func extend(minutes: Int = 5) {
+        awaitingDecision = false
+        continuesTaskAfterBreak = false
+        begin(.focus, minutes: minutes, label: label, taskID: taskID)
+    }
+
+    /// Take the break now and come back to the same task afterwards.
+    func breakThenContinue() {
+        awaitingDecision = false
+        startBreak()
+        continuesTaskAfterBreak = taskID != nil
+    }
+
+    /// The task is done: mark it, forget it, and take the break (if breaks auto-start).
+    func finishTask() {
+        awaitingDecision = false
+        continuesTaskAfterBreak = false
+        if let taskID { onTaskFinished?(taskID) }
+        taskID = nil
+        label = nil
+        if autoStartBreaks() { startBreak() }
+    }
+
+    func dismissCheckIn() {
+        awaitingDecision = false
+    }
+
     /// Starts the break that follows the last finished focus session.
     func startBreak() {
         let long = completedInCycle > 0 && completedInCycle % preset.sessionsBeforeLongBreak == 0
@@ -156,6 +192,7 @@ final class FocusTimer {
     }
 
     private func begin(_ phase: Phase, minutes: Int, label: String?, taskID: UUID? = nil) {
+        if !phase.isBreak { awaitingDecision = false; continuesTaskAfterBreak = false }
         self.phase = phase
         self.label = label
         self.taskID = taskID
@@ -250,6 +287,16 @@ final class FocusTimer {
         case .focus:
             if countsTowardCycle { completedInCycle += 1 }
             let long = completedInCycle > 0 && completedInCycle % preset.sessionsBeforeLongBreak == 0
+            if announce, let taskID {
+                // Focusing on a task: don't assume it's finished; ask.
+                reset()
+                awaitingDecision = true
+                onAlert?(NotchAlert(
+                    kind: .taskCheckIn, symbol: "timer", tint: .focus,
+                    headline: label ?? "Focus done", detail: "Time's up. Need more time?", sticky: true, taskID: taskID
+                ))
+                return
+            }
             if announce {
                 onAlert?(NotchAlert(
                     kind: .focusFinished, symbol: "checkmark.circle.fill", tint: .focus,
@@ -263,8 +310,13 @@ final class FocusTimer {
             }
         case .shortBreak, .longBreak:
             if announce {
-                onAlert?(NotchAlert(kind: .breakFinished, symbol: "cup.and.saucer.fill", tint: .rest, headline: "Break over", detail: "Ready for the next round?"))
+                let resume = continuesTaskAfterBreak ? label : nil
+                onAlert?(NotchAlert(
+                    kind: .breakFinished, symbol: "cup.and.saucer.fill", tint: .rest, headline: "Break over",
+                    detail: resume.map { "Continue “\($0)”?" } ?? "Ready for the next round?", taskID: resume == nil ? nil : taskID
+                ))
             }
+            continuesTaskAfterBreak = false
             reset()
         case .countdown:
             if announce {

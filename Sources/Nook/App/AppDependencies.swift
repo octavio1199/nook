@@ -26,6 +26,9 @@ final class AppDependencies {
         agenda.alertMinutes = { settings.eventAlertMinutes }
 
         focus.onSessionLogged = { [planner] in planner.log($0) }
+        focus.onTaskFinished = { [planner] id in
+            if planner.task(id)?.done == false { planner.toggle(id) }
+        }
         focus.onAlert = { [weak notch] in notch?.enqueue($0) }
         agenda.onAlert = { [weak notch] in notch?.enqueue($0) }
         dueWatcher.onAlert = { [weak notch] in notch?.enqueue($0) }
