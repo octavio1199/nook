@@ -49,7 +49,8 @@ final class NotchInteraction {
     var wingWidth: CGFloat {
         switch liveActivity {
         case nil: 0
-        case .focus: focus.label?.isEmpty == false ? NotchLayout.labeledWingWidth : NotchLayout.wingWidth
+        case .focus:
+            focus.phase?.isBreak == true || focus.label?.isEmpty == false ? NotchLayout.labeledWingWidth : NotchLayout.wingWidth
         case .event: NotchLayout.wingWidth
         }
     }
