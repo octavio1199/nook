@@ -30,7 +30,21 @@ enum MarkdownTheme {
 /// Plain-text NSTextView with smart markdown editing, checkbox/link clicks, ⌘↩ and a placeholder.
 final class MarkdownNSTextView: NSTextView {
     var onCommandReturn: (() -> Void)?
+    /// Told when the text view gains or loses keyboard focus.
+    var onFocusChange: ((Bool) -> Void)?
     var placeholder = "" { didSet { needsDisplay = true } }
+
+    override func becomeFirstResponder() -> Bool {
+        let became = super.becomeFirstResponder()
+        if became { onFocusChange?(true) }
+        return became
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let resigned = super.resignFirstResponder()
+        if resigned { onFocusChange?(false) }
+        return resigned
+    }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         // Only ⌘↩ is intercepted; ⌘C/⌘V/⌘X/⌘Z keep flowing to the Edit menu.
@@ -199,12 +213,20 @@ struct MarkdownEditor: NSViewRepresentable {
     /// Receives the current line. Return true when it was consumed (the editor then marks the line with a "→ " prefix).
     var onCommandReturn: ((String) -> Bool)?
     var wrapsLines: Bool
+    /// When set, the editor takes (true) or gives up (false) keyboard focus to match.
+    var wantsFocus: Bool?
+    var onFocusChange: ((Bool) -> Void)?
 
-    init(text: Binding<String>, placeholder: String = "", onCommandReturn: ((String) -> Bool)? = nil, wrapsLines: Bool = true) {
+    init(
+        text: Binding<String>, placeholder: String = "", onCommandReturn: ((String) -> Bool)? = nil, wrapsLines: Bool = true,
+        wantsFocus: Bool? = nil, onFocusChange: ((Bool) -> Void)? = nil
+    ) {
         _text = text
         self.placeholder = placeholder
         self.onCommandReturn = onCommandReturn
         self.wrapsLines = wrapsLines
+        self.wantsFocus = wantsFocus
+        self.onFocusChange = onFocusChange
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -242,6 +264,7 @@ struct MarkdownEditor: NSViewRepresentable {
         tv.delegate = context.coordinator
         tv.textStorage?.delegate = context.coordinator
         tv.onCommandReturn = { [weak coordinator = context.coordinator] in coordinator?.commandReturn() }
+        tv.onFocusChange = { [weak coordinator = context.coordinator] focused in coordinator?.parent.onFocusChange?(focused) }
 
         scroll.documentView = tv
         context.coordinator.textView = tv
@@ -256,6 +279,15 @@ struct MarkdownEditor: NSViewRepresentable {
         coordinator.parent = self
         guard let tv = coordinator.textView else { return }
         if tv.placeholder != placeholder { tv.placeholder = placeholder }
+        if let wants = wantsFocus {
+            // After this update pass, so a text field taking focus at the same time wins.
+            DispatchQueue.main.async { [weak tv] in
+                guard let tv, let window = tv.window else { return }
+                let focused = window.firstResponder === tv
+                if wants, !focused { window.makeFirstResponder(tv) }
+                if !wants, focused { window.makeFirstResponder(nil) }
+            }
+        }
         if coordinator.wraps != wrapsLines {
             coordinator.wraps = wrapsLines
             Self.configureWrapping(scroll: scroll, textView: tv, wraps: wrapsLines)

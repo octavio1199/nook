@@ -10,8 +10,9 @@ final class AppDependencies {
     let notch: NotchInteraction
     let dueWatcher: TaskDueWatcher
     let blocks: BlockWatcher
-    let workspace = WorkspaceState()
+    let workspace = WorkspaceState(defaults: DemoMode.scene == nil ? .standard : nil)
     let notifier: SystemNotifier
+    let hotKeys = HotKeyCenter()
     /// The status item's menu; its tracking must not hold the open panel.
     weak var statusMenu: NSMenu?
     private var dayObservers: [NSObjectProtocol] = []
@@ -76,6 +77,7 @@ final class AppDependencies {
             .environment(agenda)
             .environment(notch)
             .environment(blocks)
+            .environment(hotKeys)
             .environment(workspace)
             .environment(notifier)
             .environment(\.openSettings, OpenNookSettings { [weak self] in self?.openSettings() })

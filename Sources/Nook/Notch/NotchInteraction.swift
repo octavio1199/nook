@@ -47,6 +47,9 @@ final class NotchInteraction {
     @ObservationIgnored weak var blocks: BlockWatcher?
     /// Asked first on Esc: a modal inside the panel (the task composer) returns true when it consumed the key.
     @ObservationIgnored var onEscape: (() -> Bool)?
+    /// Sees every key first while the panel is open (the composer's Tab order and pickers, the
+    /// focus picker's arrows). Returns true when it consumed the key.
+    @ObservationIgnored var keyInterceptor: ((NSEvent) -> Bool)?
 
     /// Alerts waiting for the notch to be free (they arrived while open, or behind another peek).
     @ObservationIgnored private(set) var queuedAlerts: [NotchAlert] = []
@@ -248,8 +251,38 @@ final class NotchInteraction {
         return pendingCapture && state == .open
     }
 
+    /// Global "toggle Nook": opens on whatever tab was last shown, or closes.
     func toggleFromKeyboard() {
-        if state == .open { close() } else { open(capturing: true) }
+        if state == .open {
+            close()
+        } else {
+            open()
+            onNeedsKeyFocus?()
+        }
+    }
+
+    /// Global "new task": opens the panel with the composer; a second press closes it again.
+    /// `composerOpen` tells whether the composer is already showing.
+    func newTaskFromKeyboard(composerOpen: Bool) {
+        if state == .open, composerOpen { close() } else { open(capturing: true) }
+    }
+
+    /// Global "pin": opens the panel pinned, or flips the pin while it is open.
+    func togglePinFromKeyboard() {
+        if state == .open {
+            isPinned.toggle()
+        } else {
+            open()
+            isPinned = true
+            onNeedsKeyFocus?()
+        }
+    }
+
+    /// Global "start focus": opens the workspace with keyboard focus, for the focus picker.
+    func openForFocusPicker() {
+        if state != .open { open() }
+        show(.workspace)
+        onNeedsKeyFocus?()
     }
 
     func close(pointerStaysOver: Bool = false) {
@@ -375,6 +408,7 @@ final class NotchInteraction {
 
     func handleKey(_ event: NSEvent) -> Bool {
         guard state == .open else { return false }
+        if keyInterceptor?(event) == true { return true }
         let command = event.modifierFlags.contains(.command)
         switch (Int(event.keyCode), command, event.charactersIgnoringModifiers ?? "") {
         case (53, _, _):

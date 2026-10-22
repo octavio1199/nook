@@ -39,6 +39,34 @@ final class AppSettings {
     /// Working hours for auto-planning, in minutes since midnight (default 09:00 to 18:00).
     var workdayStart: Int { didSet { defaults.set(workdayStart, forKey: "workdayStart") } }
     var workdayEnd: Int { didSet { defaults.set(workdayEnd, forKey: "workdayEnd") } }
+    /// Global shortcuts the user rebound; the rest use `GlobalAction.defaultShortcut`.
+    private(set) var customShortcuts: [GlobalAction: Shortcut] {
+        didSet {
+            let stored = Dictionary(uniqueKeysWithValues: customShortcuts.map { ($0.key.rawValue, $0.value) })
+            defaults.set(try? JSONEncoder().encode(stored), forKey: "shortcuts")
+        }
+    }
+
+    func shortcut(for action: GlobalAction) -> Shortcut {
+        customShortcuts[action] ?? action.defaultShortcut
+    }
+
+    /// The action already using `shortcut`, other than `action` itself.
+    func conflict(for shortcut: Shortcut, excluding action: GlobalAction) -> GlobalAction? {
+        GlobalAction.allCases.first { $0 != action && self.shortcut(for: $0) == shortcut }
+    }
+
+    /// Rebinds `action`. Refused (returns the other action) when another action already uses it.
+    @discardableResult
+    func setShortcut(_ shortcut: Shortcut, for action: GlobalAction) -> GlobalAction? {
+        if let other = conflict(for: shortcut, excluding: action) { return other }
+        customShortcuts[action] = shortcut == action.defaultShortcut ? nil : shortcut
+        return nil
+    }
+
+    func resetShortcut(for action: GlobalAction) {
+        customShortcuts[action] = nil
+    }
 
     var launchAtLogin: Bool {
         get { SMAppService.mainApp.status == .enabled }
@@ -64,5 +92,9 @@ final class AppSettings {
         let valid = (0..<1440).contains(start) && (1...1440).contains(end) && start < end
         workdayStart = valid ? start : 9 * 60
         workdayEnd = valid ? end : 18 * 60
+        let stored = defaults.data(forKey: "shortcuts").flatMap { try? JSONDecoder().decode([String: Shortcut].self, from: $0) } ?? [:]
+        customShortcuts = Dictionary(uniqueKeysWithValues: stored.compactMap { key, value in
+            GlobalAction(rawValue: key).map { ($0, value) }
+        })
     }
 }

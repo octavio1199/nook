@@ -31,6 +31,7 @@ struct SettingsView: View {
             GeneralPage().tabItem { Label("General", systemImage: "gearshape") }
             AppearancePage().tabItem { Label("Appearance", systemImage: "paintbrush") }
             FocusPage().tabItem { Label("Focus", systemImage: "timer") }
+            KeyboardPage().tabItem { Label("Keyboard", systemImage: "keyboard") }
             NotificationsPage().tabItem { Label("Notifications", systemImage: "bell") }
             CalendarPage().tabItem { Label("Calendar", systemImage: "calendar") }
             DataPage().tabItem { Label("Data", systemImage: "externaldrive") }
@@ -75,9 +76,6 @@ private struct GeneralPage: View {
             }
             Text("Plan my day only fills time inside your working hours.")
                 .font(.callout).foregroundStyle(.secondary)
-            LabeledContent("Global hotkey") {
-                Text("⌥⌘N").font(.system(.body, design: .rounded)).foregroundStyle(.secondary)
-            }
         }
         .formStyle(.grouped)
         .onAppear { login.enabled = settings.launchAtLogin }
@@ -251,5 +249,113 @@ private struct AboutPage: View {
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+// MARK: - Keyboard
+
+/// Records one key combination through a local key monitor while the Settings window is key.
+private final class ShortcutRecorder: ObservableObject {
+    @Published var recording: GlobalAction?
+    @Published var message: String?
+    private var monitor: Any?
+
+    func start(_ action: GlobalAction, settings: AppSettings, hotKeys: HotKeyCenter) {
+        stop(settings: settings, hotKeys: hotKeys)
+        recording = action
+        message = nil
+        hotKeys.suspend()
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            MainActor.assumeIsolated { self?.record(event, settings: settings, hotKeys: hotKeys) }
+            return nil
+        }
+    }
+
+    private func record(_ event: NSEvent, settings: AppSettings, hotKeys: HotKeyCenter) {
+        guard let action = recording else { return }
+        if Int(event.keyCode) == 53 { // esc
+            stop(settings: settings, hotKeys: hotKeys)
+            return
+        }
+        guard let shortcut = Shortcut(keyCode: Int(event.keyCode), flags: event.modifierFlags, characters: event.charactersIgnoringModifiers) else {
+            message = "Use at least one of ⌘, ⌥ or ⌃."
+            return
+        }
+        if let other = settings.setShortcut(shortcut, for: action) {
+            message = "\(shortcut.symbols) is already “\(other.title)”."
+            return
+        }
+        stop(settings: settings, hotKeys: hotKeys)
+    }
+
+    func stop(settings: AppSettings, hotKeys: HotKeyCenter) {
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
+        if recording != nil {
+            recording = nil
+            hotKeys.resume(settings)
+        }
+    }
+}
+
+struct KeyboardPage: View {
+    @Environment(AppSettings.self) private var settings
+    @Environment(HotKeyCenter.self) private var hotKeys
+    @StateObject private var recorder = ShortcutRecorder()
+
+    var body: some View {
+        Form {
+            Section {
+                ForEach(GlobalAction.allCases) { action in
+                    LabeledContent(action.title) {
+                        HStack(spacing: 6) {
+                            if hotKeys.unavailable.contains(action) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundStyle(.yellow)
+                                    .help("Another app or macOS already uses this shortcut. Pick a different one.")
+                            }
+                            Button {
+                                if recorder.recording == action {
+                                    recorder.stop(settings: settings, hotKeys: hotKeys)
+                                } else {
+                                    recorder.start(action, settings: settings, hotKeys: hotKeys)
+                                }
+                            } label: {
+                                Text(recorder.recording == action ? "Type a shortcut…" : settings.shortcut(for: action).symbols)
+                                    .font(.system(.body, design: .rounded))
+                                    .frame(minWidth: 96)
+                            }
+                            .help("Click, then press the new shortcut (esc cancels)")
+                            Button {
+                                settings.resetShortcut(for: action)
+                                hotKeys.apply(settings)
+                            } label: {
+                                Image(systemName: "arrow.counterclockwise")
+                            }
+                            .buttonStyle(.borderless)
+                            .disabled(settings.shortcut(for: action) == action.defaultShortcut)
+                            .help("Back to \(action.defaultShortcut.symbols)")
+                        }
+                    }
+                }
+                if let message = recorder.message {
+                    Text(message).font(.callout).foregroundStyle(.orange)
+                }
+            } header: {
+                Text("Anywhere")
+            } footer: {
+                Text("These work from any app, even when Nook is closed.")
+                    .font(.callout).foregroundStyle(.secondary)
+            }
+            Section("While the panel is open") {
+                ForEach(PanelShortcuts.all, id: \.title) { item in
+                    LabeledContent(item.title) {
+                        Text(item.keys).font(.system(.body, design: .rounded)).foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .onDisappear { recorder.stop(settings: settings, hotKeys: hotKeys) }
     }
 }

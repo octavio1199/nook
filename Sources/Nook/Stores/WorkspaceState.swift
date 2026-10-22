@@ -1,4 +1,5 @@
 import Foundation
+import CoreGraphics
 import Observation
 
 enum TaskScope: String, CaseIterable, Identifiable {
@@ -22,6 +23,16 @@ final class WorkspaceState {
     /// The task composer's draft (title, notes, chips, focus). Survives the panel closing.
     var composer = ComposerDraft()
     private(set) var isComposerOpen = false
+    /// Which composer stop has the keyboard (Tab order) and the digits typed into the estimate.
+    var composerKeys = ComposerKeyboard()
+    /// The "start a focus" task picker (global shortcut).
+    private(set) var isFocusPickerOpen = false
+    var focusQuery = ""
+    var focusSelection = 0
+    /// Tasks column share of the Tasks + Notepad width (nil = the default split). Kept across launches.
+    private(set) var tasksFraction: Double? {
+        didSet { defaults?.set(tasksFraction, forKey: Self.tasksFractionKey) }
+    }
     /// Last `NotchInteraction.captureRequest` the Tasks column acted on.
     @ObservationIgnored var seenCaptureRequest = 0
     var taskScope: TaskScope = .today
@@ -36,9 +47,14 @@ final class WorkspaceState {
     @ObservationIgnored let toaster = UndoToaster()
 
     @ObservationIgnored private let calendar: Calendar
+    @ObservationIgnored private let defaults: UserDefaults?
+    private static let tasksFractionKey = "tasksColumnFraction"
 
-    init(now: Date = Date(), calendar: Calendar = .current) {
+    /// `defaults: nil` keeps the column width in memory only (tests, demo screenshots).
+    init(now: Date = Date(), calendar: Calendar = .current, defaults: UserDefaults? = nil) {
         self.calendar = calendar
+        self.defaults = defaults
+        tasksFraction = defaults?.object(forKey: Self.tasksFractionKey) as? Double
         let start = calendar.startOfDay(for: now)
         today = start
         notesDay = start
@@ -50,7 +66,11 @@ final class WorkspaceState {
         set { composer.title = newValue }
     }
 
-    func openComposer() { isComposerOpen = true }
+    func openComposer() {
+        isFocusPickerOpen = false
+        composerKeys = ComposerKeyboard()
+        isComposerOpen = true
+    }
 
     /// Esc / backdrop click: hides the composer but keeps the draft.
     func closeComposer() { isComposerOpen = false }
@@ -67,6 +87,59 @@ final class WorkspaceState {
         guard isComposerOpen else { return false }
         isComposerOpen = false
         return true
+    }
+
+    /// Esc: closes whichever overlay is up (composer or focus picker). True when it closed one.
+    @discardableResult
+    func dismissOverlayIfOpen() -> Bool {
+        if dismissComposerIfOpen() { return true }
+        guard isFocusPickerOpen else { return false }
+        isFocusPickerOpen = false
+        return true
+    }
+
+    // MARK: Focus picker
+
+    func openFocusPicker() {
+        isComposerOpen = false
+        focusQuery = ""
+        focusSelection = 0
+        isFocusPickerOpen = true
+    }
+
+    func closeFocusPicker() { isFocusPickerOpen = false }
+
+    /// Moves the highlighted row, staying inside `count` rows.
+    func moveFocusSelection(by delta: Int, count: Int) {
+        guard count > 0 else { focusSelection = 0; return }
+        focusSelection = min(max(focusSelection + delta, 0), count - 1)
+    }
+
+    // MARK: Column widths
+
+    static let minTasksWidth: CGFloat = 200
+    static let minNotesWidth: CGFloat = 230
+    /// Default Notepad width: enough for its full toolbar (the layout before columns were resizable).
+    static let defaultNotesWidth: CGFloat = 296
+
+    /// Tasks column width for `available` points shared by Tasks and Notepad.
+    func tasksWidth(available: CGFloat) -> CGFloat {
+        let width = tasksFraction.map { available * CGFloat($0) } ?? available - Self.defaultNotesWidth
+        return Self.clampTasks(width.rounded(), available: available)
+    }
+
+    /// Divider drag: remembers the width as a fraction so a different panel width keeps the split.
+    func setTasksWidth(_ width: CGFloat, available: CGFloat) {
+        guard available > 0 else { return }
+        tasksFraction = Double(Self.clampTasks(width, available: available) / available)
+    }
+
+    /// Double-click on the divider: back to the default split.
+    func resetColumns() { tasksFraction = nil }
+
+    private static func clampTasks(_ width: CGFloat, available: CGFloat) -> CGFloat {
+        let upper = max(available - minNotesWidth, minTasksWidth)
+        return min(max(width, minTasksWidth), upper)
     }
 
     var notesDayIsToday: Bool { calendar.isDate(notesDay, inSameDayAs: today) }

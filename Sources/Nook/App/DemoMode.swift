@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 
 /// `--demo [open|peek|live|insights|checkin|checkin-open|checkin-wings]` runs Nook on an in-memory store with sample data, for screenshots.
 enum DemoMode {
@@ -69,6 +70,37 @@ enum DemoMode {
                 draft.startFocus = true
                 app.workspace.composer = draft
                 app.workspace.openComposer()
+            case "composer-keys":
+                app.notch.open()
+                app.notch.isPinned = true
+                var draft = ComposerDraft()
+                draft.title = "Prepare board deck"
+                draft.due = .tomorrow
+                draft.priority = .high
+                draft.estimateMinutes = 90
+                draft.tagsText = "work"
+                app.workspace.composer = draft
+                app.workspace.openComposer()
+                // After the card's appear (which puts the cursor in the title), as if Tab was pressed.
+                Task {
+                    try? await Task.sleep(for: .milliseconds(500))
+                    app.workspace.composerKeys.field = .estimate
+                }
+            case "focus-picker":
+                app.notch.open()
+                app.notch.isPinned = true
+                app.workspace.openFocusPicker()
+                app.workspace.focusSelection = 2
+            case "detail":
+                app.notch.open()
+                app.notch.isPinned = true
+                app.workspace.detailTaskID = app.planner.tasks.first { $0.title == "Draft launch post" }?.id
+            case "columns":
+                app.notch.open()
+                app.notch.isPinned = true
+                app.workspace.setTasksWidth(560, available: 760)
+            case "keyboard":
+                renderSettingsPage(app: app)
             case "composer-dump":
                 app.notch.open()
                 app.notch.isPinned = true
@@ -92,5 +124,20 @@ enum DemoMode {
                 NSApp.terminate(nil)
             }
         }
+    }
+
+    /// The Settings window isn't part of the panel; render the Keyboard page on its own.
+    private static func renderSettingsPage(app: AppDependencies) {
+        let args = ProcessInfo.processInfo.arguments
+        guard let index = args.firstIndex(of: "--snapshot"), args.indices.contains(index + 1) else { return }
+        let view = NSHostingView(rootView: app.inject(into: KeyboardPage()).frame(width: 520, height: 420))
+        view.frame = NSRect(x: 0, y: 0, width: 520, height: 420)
+        let window = NSWindow(contentRect: view.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = view
+        window.appearance = NSAppearance(named: .darkAqua)
+        view.layoutSubtreeIfNeeded()
+        guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+        view.cacheDisplay(in: view.bounds, to: rep)
+        try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: args[index + 1] + ".settings.png"))
     }
 }

@@ -42,10 +42,20 @@ struct NotesColumn: View {
 
     // MARK: - Header
 
+    /// Narrow column (the Tasks column was dragged wider): the emoji button goes and Wrap loses its label.
     private var toolbar: some View {
+        ViewThatFits(in: .horizontal) {
+            toolbarRow(compact: false)
+            toolbarRow(compact: true)
+        }
+    }
+
+    private func toolbarRow(compact: Bool) -> some View {
         HStack(spacing: 4) {
-            toolButton("face.smiling", help: "Emoji (⌃⌘Space)", active: false) { NSApp.orderFrontCharacterPalette(nil) }
-            wrapToggle
+            if !compact {
+                toolButton("face.smiling", help: "Emoji (⌃⌘Space)", active: false) { NSApp.orderFrontCharacterPalette(nil) }
+            }
+            wrapToggle(compact: compact)
             Button { showHints.toggle() } label: {
                 Text("Aa")
                     .font(.system(size: 9.5, weight: .bold))
@@ -61,15 +71,17 @@ struct NotesColumn: View {
     }
 
     /// A labeled pill so the state is obvious: filled when long lines wrap, outlined when they scroll sideways.
-    private var wrapToggle: some View {
+    private func wrapToggle(compact: Bool) -> some View {
         Button {
             withAnimation(Motion.hover) { wrapLines.toggle() }
         } label: {
             HStack(spacing: 3) {
                 Image(systemName: wrapLines ? "arrow.turn.down.left" : "arrow.right")
                     .font(.system(size: 8, weight: .bold))
-                Text("Wrap")
-                    .font(.system(size: 9.5, weight: .semibold))
+                if !compact {
+                    Text("Wrap")
+                        .font(.system(size: 9.5, weight: .semibold))
+                }
             }
             .foregroundStyle(wrapLines ? Color.accent : Color.textTertiary)
             .padding(.horizontal, 6)

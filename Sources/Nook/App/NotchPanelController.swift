@@ -5,7 +5,6 @@ final class NotchPanelController {
     private let app: AppDependencies
     private let panel: NotchPanel
     private var notch: NotchInteraction { app.notch }
-    private var hotKey: HotKey?
     private var monitors: [Any] = []
     /// The app that was frontmost when the panel became key, so focus can go back to it.
     private var previousApp: NSRunningApplication?
@@ -22,9 +21,13 @@ final class NotchPanelController {
     }
 
     func startListening() {
-        hotKey = HotKey(.togglePanel) { [weak self] in
-            MainActor.assumeIsolated { self?.toggleFromKeyboard() }
-        }
+        app.hotKeys.handlers = [
+            .toggle: { [weak self] in self?.toggleFromKeyboard() },
+            .newTask: { [weak self] in self?.newTaskFromKeyboard() },
+            .pin: { [weak self] in self?.pinFromKeyboard() },
+            .focus: { [weak self] in self?.focusFromKeyboard() },
+        ]
+        if DemoMode.scene == nil { app.hotKeys.apply(app.settings) }
         NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil,
@@ -101,6 +104,27 @@ final class NotchPanelController {
     private func toggleFromKeyboard() {
         notch.toggleFromKeyboard()
         if notch.state == .open { becomeKey() }
+    }
+
+    private func newTaskFromKeyboard() {
+        notch.newTaskFromKeyboard(composerOpen: app.workspace.isComposerOpen)
+        if notch.state == .open { becomeKey() }
+    }
+
+    private func pinFromKeyboard() {
+        notch.togglePinFromKeyboard()
+        if notch.state == .open { becomeKey() }
+    }
+
+    /// Opens the workspace with the focus picker; pressing it again while the picker shows closes it.
+    private func focusFromKeyboard() {
+        if notch.state == .open, app.workspace.isFocusPickerOpen {
+            app.workspace.closeFocusPicker()
+            return
+        }
+        notch.openForFocusPicker()
+        app.workspace.openFocusPicker()
+        becomeKey()
     }
 
     /// First click inside the open panel: take key status (hover never does), and unless the click

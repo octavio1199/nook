@@ -58,12 +58,11 @@ struct TasksColumn: View {
             toaster.observe(planner.undoManager)
             if let id = workspace.detailTaskID, planner.task(id) == nil { workspace.detailTaskID = nil }
             _ = notch.takePendingCapture()
-            notch.onEscape = { [workspace] in workspace.dismissComposerIfOpen() }
             syncCaptureRequest()
         }
         .onDisappear {
             workspace.closeComposer()
-            notch.onEscape = nil
+            workspace.closeFocusPicker()
         }
         .onChange(of: notch.captureRequest) { syncCaptureRequest() }
     }
@@ -186,6 +185,7 @@ private struct NewTaskButton: View {
     /// nil when there is no draft; otherwise the draft's (possibly empty) title.
     let draftTitle: String?
     let action: () -> Void
+    @Environment(AppSettings.self) private var settings
     @LocalState private var hovering = false
 
     var body: some View {
@@ -204,7 +204,7 @@ private struct NewTaskButton: View {
                     Text("New task").font(Typography.body).foregroundStyle(Color.textPrimary)
                 }
                 Spacer(minLength: 4)
-                Text(Shortcut.togglePanel.symbols)
+                Text(settings.shortcut(for: .newTask).symbols)
                     .font(Typography.micro)
                     .foregroundStyle(Color.textTertiary)
             }

@@ -3,22 +3,84 @@ import SwiftUI
 
 struct WorkspaceView: View {
     @Environment(AppSettings.self) private var settings
+    @Environment(WorkspaceState.self) private var workspace
+    @Environment(NotchInteraction.self) private var notch
+    @Environment(PlannerStore.self) private var planner
+    @Environment(FocusTimer.self) private var focus
+
+    static let spacing: CGFloat = 10
+    static let sideWidth: CGFloat = 230
 
     var body: some View {
-        VStack(spacing: 10) {
-            HStack(alignment: .top, spacing: 10) {
+        GeometryReader { proxy in
+            // Tasks and Notepad share what the right column leaves; the divider sits in their gap.
+            let available = max(proxy.size.width - Self.sideWidth - Self.spacing * 2, 0)
+            let tasksWidth = workspace.tasksWidth(available: available)
+            HStack(alignment: .top, spacing: 0) {
                 TasksColumn()
-                    .frame(maxWidth: .infinity)
+                    .frame(width: tasksWidth)
+                ColumnDivider(width: Self.spacing, tasksWidth: tasksWidth, available: available)
                 NotesColumn()
                     .frame(maxWidth: .infinity)
-                VStack(spacing: 10) {
+                VStack(spacing: Self.spacing) {
                     if settings.showsAgenda { AgendaCard() }
                     FocusCard()
                 }
-                .frame(width: 230)
+                .frame(width: Self.sideWidth)
+                .padding(.leading, Self.spacing)
             }
         }
         .overlay { TaskComposerOverlay() }
+        .overlay { FocusPickerOverlay() }
+        .onAppear {
+            notch.onEscape = { [workspace] in workspace.dismissOverlayIfOpen() }
+            notch.keyInterceptor = { [workspace, planner, focus, settings] event in
+                PanelOverlayKeys.handle(event, workspace: workspace, planner: planner, focus: focus, settings: settings)
+            }
+        }
+        .onDisappear {
+            notch.onEscape = nil
+            notch.keyInterceptor = nil
+        }
+    }
+}
+
+/// Drag to trade width between Tasks and Notepad; double-click for an even split.
+private struct ColumnDivider: View {
+    let width: CGFloat
+    let tasksWidth: CGFloat
+    let available: CGFloat
+    @Environment(WorkspaceState.self) private var workspace
+    @LocalState private var hovering = false
+    @LocalState private var dragStart: CGFloat?
+
+    var body: some View {
+        let active = hovering || dragStart != nil
+        Capsule()
+            .fill(Color.white.opacity(active ? 0.28 : 0))
+            .frame(width: 3)
+            .padding(.vertical, 18)
+            .frame(width: width)
+            .frame(maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .onHover { inside in
+                hovering = inside
+                if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+            }
+            .gesture(
+                DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                    .onChanged { value in
+                        let start = dragStart ?? tasksWidth
+                        if dragStart == nil { dragStart = start }
+                        workspace.setTasksWidth(start + value.translation.width, available: available)
+                    }
+                    .onEnded { _ in dragStart = nil }
+            )
+            .simultaneousGesture(TapGesture(count: 2).onEnded {
+                withAnimation(Motion.navigate) { workspace.resetColumns() }
+            })
+            .animation(Motion.hover, value: active)
+            .help("Drag to resize · double-click to reset")
     }
 }
 
