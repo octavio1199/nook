@@ -11,7 +11,12 @@ struct PlannerData: Codable {
 final class PlannerStore {
     private(set) var data: PlannerData
 
-    @ObservationIgnored let undoManager = UndoManager()
+    @ObservationIgnored let undoManager: UndoManager = {
+        let manager = UndoManager()
+        manager.levelsOfUndo = 100
+        return manager
+    }()
+    @ObservationIgnored private var removedLineIndex: [SentLineKey: Int] = [:]
     @ObservationIgnored private let url: URL?
     @ObservationIgnored private var saveTask: Task<Void, Never>?
 
@@ -20,15 +25,42 @@ final class PlannerStore {
         return base.appendingPathComponent("Nook", isDirectory: true).appendingPathComponent("planner.json")
     }
 
+    /// Set when planner.json existed but couldn't be read; the file was moved here untouched.
+    @ObservationIgnored private(set) var quarantinedFile: URL?
+
     /// Pass `url: nil` for an in-memory store (tests, previews).
     init(url: URL? = PlannerStore.defaultURL) {
         self.url = url
-        if let url, let raw = try? Data(contentsOf: url),
-           let decoded = try? JSONDecoder.planner.decode(PlannerData.self, from: raw) {
+        guard let url, let raw = try? Data(contentsOf: url) else {
+            data = PlannerData()
+            return
+        }
+        if let decoded = try? JSONDecoder.planner.decode(PlannerData.self, from: raw) {
             data = decoded
+            Self.writeDailyBackup(raw, next: url)
         } else {
+            // Never overwrite a file we can't read: move it aside so nothing is lost.
+            let stamp = Int(Date().timeIntervalSince1970)
+            let aside = url.deletingLastPathComponent().appendingPathComponent("planner.unreadable-\(stamp).json")
+            try? FileManager.default.moveItem(at: url, to: aside)
+            quarantinedFile = aside
             data = PlannerData()
         }
+    }
+
+    static func backupsDirectory(next url: URL) -> URL {
+        url.deletingLastPathComponent().appendingPathComponent("Backups", isDirectory: true)
+    }
+
+    /// One copy per day of the last good file, keeping the most recent 14.
+    private static func writeDailyBackup(_ raw: Data, next url: URL) {
+        let dir = backupsDirectory(next: url)
+        let fm = FileManager.default
+        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        let file = dir.appendingPathComponent("planner-\(DayKey.string(for: Date())).json")
+        if !fm.fileExists(atPath: file.path) { try? raw.write(to: file, options: .atomic) }
+        let backups = ((try? fm.contentsOfDirectory(atPath: dir.path)) ?? []).filter { $0.hasPrefix("planner-") }.sorted()
+        for old in backups.dropLast(14) { try? fm.removeItem(at: dir.appendingPathComponent(old)) }
     }
 
     var tasks: [TaskItem] { data.tasks }
@@ -126,21 +158,23 @@ final class PlannerStore {
 
     // MARK: - Undo
 
-    /// Every task mutation snapshots the whole store, so ⌘Z restores exactly what was there,
-    /// including notepad lines that were cleaned up as a side effect.
+    /// Task mutations snapshot only `tasks`. Notes and focus sessions are never rolled back by
+    /// ⌘Z, so typing in the notepad or a task's notes after an action can't be lost by undoing it.
+    /// Notepad "→ line" markers are reconciled from the task change in both directions.
     private func mutate(_ action: String, _ body: (inout PlannerData) -> Void) {
-        let before = data
+        let before = data.tasks
         body(&data)
-        removeSentLines(resolvedSince: before)
+        reconcileSentLines(from: before)
         registerUndo(restoring: before, action: action)
         scheduleSave()
     }
 
-    private func registerUndo(restoring snapshot: PlannerData, action: String) {
-        let current = data
+    private func registerUndo(restoring tasks: [TaskItem], action: String) {
         undoManager.registerUndo(withTarget: self) { store in
             MainActor.assumeIsolated {
-                store.data = snapshot
+                let current = store.data.tasks
+                store.restore(tasks)
+                store.reconcileSentLines(from: current)
                 store.scheduleSave()
                 store.registerUndo(restoring: current, action: action)
             }
@@ -148,19 +182,44 @@ final class PlannerStore {
         undoManager.setActionName(action)
     }
 
-    /// When every task sent from a notepad line (⌘↩) is done, archived or deleted,
-    /// the "→ line" marker is removed from that day's note.
-    private func removeSentLines(resolvedSince before: PlannerData) {
-        let open = Set(data.tasks.filter { !$0.done && $0.archivedAt == nil }.compactMap(Self.sentLineKey))
-        let candidates = Set(before.tasks.compactMap(Self.sentLineKey)).subtracting(open)
-        for key in candidates {
-            guard var note = data.notes[key.day] else { continue }
-            var lines = note.components(separatedBy: "\n")
+    /// Puts back a tasks snapshot but keeps each task's current notes (they have their own text undo).
+    private func restore(_ tasks: [TaskItem]) {
+        let notes = Dictionary(data.tasks.map { ($0.id, $0.notes) }, uniquingKeysWith: { first, _ in first })
+        data.tasks = tasks.map { task in
+            var task = task
+            if let current = notes[task.id] { task.notes = current }
+            return task
+        }
+    }
+
+    /// When every task sent from a notepad line (⌘↩) is done, archived or deleted, the
+    /// "→ line" marker leaves that day's note; when one becomes open again (undo, restore,
+    /// reopen) the marker comes back where it was.
+    private func reconcileSentLines(from before: [TaskItem]) {
+        let openNow = Set(data.tasks.filter(\.isOpen).compactMap(Self.sentLineKey))
+        let openBefore = Set(before.filter(\.isOpen).compactMap(Self.sentLineKey))
+        let existedBefore = Set(before.map(\.id))
+        let reopened = Set(data.tasks.filter { $0.isOpen && existedBefore.contains($0.id) }.compactMap(Self.sentLineKey))
+            .subtracting(openBefore)
+
+        for key in Set(before.compactMap(Self.sentLineKey)).subtracting(openNow) {
+            var lines = (data.notes[key.day] ?? "").components(separatedBy: "\n")
             guard let index = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == "→ " + key.line }) else { continue }
             lines.remove(at: index)
-            note = lines.joined(separator: "\n")
-            if note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { data.notes.removeValue(forKey: key.day) } else { data.notes[key.day] = note }
+            removedLineIndex[key] = index
+            setNoteText(lines.joined(separator: "\n"), key: key.day)
         }
+        for key in reopened {
+            var lines = (data.notes[key.day] ?? "").components(separatedBy: "\n")
+            guard !lines.contains(where: { $0.trimmingCharacters(in: .whitespaces) == "→ " + key.line }) else { continue }
+            if lines == [""] { lines = [] }
+            lines.insert("→ " + key.line, at: min(removedLineIndex[key] ?? lines.count, lines.count))
+            setNoteText(lines.joined(separator: "\n"), key: key.day)
+        }
+    }
+
+    private func setNoteText(_ text: String, key: String) {
+        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { data.notes.removeValue(forKey: key) } else { data.notes[key] = text }
     }
 
     private struct SentLineKey: Hashable {
@@ -247,5 +306,24 @@ extension JSONDecoder {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return decoder
+    }
+}
+
+// Tolerant decoding: a missing field falls back to its default instead of failing the file.
+extension PlannerData {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        tasks = (try? c.decodeIfPresent([Lossy<TaskItem>].self, forKey: .tasks))?.compactMap { $0.value } ?? []
+        notes = (try? c.decodeIfPresent([String: String].self, forKey: .notes)) ?? [:]
+        sessions = (try? c.decodeIfPresent([Lossy<FocusSession>].self, forKey: .sessions))?.compactMap { $0.value } ?? []
+    }
+}
+
+/// Decodes an element if it can, so one bad entry doesn't drop the whole array.
+struct Lossy<Value: Decodable>: Decodable {
+    let value: Value?
+
+    init(from decoder: Decoder) throws {
+        value = try? Value(from: decoder)
     }
 }
