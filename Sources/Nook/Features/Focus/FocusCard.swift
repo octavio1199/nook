@@ -115,8 +115,59 @@ private struct ActiveFocusView: View {
     @Environment(PlannerStore.self) private var planner
 
     var body: some View {
+        if focus.phase?.isBreak == true {
+            breakBody
+        } else {
+            focusBody
+        }
+    }
+
+    // MARK: Break
+
+    private var breakBody: some View {
+        let tint = Color.rest
+        let long = focus.phase == .longBreak
+        return VStack(spacing: 8) {
+            HStack(spacing: 10) {
+                ring(tint: tint)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(focus.phase?.title ?? "Break")
+                        .font(Typography.title)
+                        .foregroundStyle(tint)
+                    Text(BreakTips.emojiRow)
+                        .font(.system(size: 19))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                        let tip = BreakTips.tip(at: context.date, long: long)
+                        Text(tip.text)
+                            .font(Typography.caption)
+                            .foregroundStyle(Color.textSecondary)
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .id(tip.id)
+                            .transition(.opacity)
+                            .animation(Motion.fade, value: tip.id)
+                    }
+                    Spacer(minLength: 0)
+                    cycleDots(tint: tint)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(height: 80)
+            }
+            HStack(spacing: 6) {
+                BreakButton(title: "Skip break", tint: tint, prominent: true) { focus.skip() }
+                BreakButton(title: "+5 min", tint: tint, prominent: false) { focus.addFiveMinutes() }
+            }
+            .frame(height: 28)
+        }
+    }
+
+    // MARK: Focus
+
+    private var focusBody: some View {
         let tint = focus.phase?.tint ?? .focus
-        VStack(spacing: 8) {
+        return VStack(spacing: 8) {
             HStack(spacing: 10) {
                 ring(tint: tint)
                 VStack(alignment: .leading, spacing: 4) {
@@ -294,6 +345,29 @@ private struct SmallChip: View {
             .frame(height: 24)
             .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(hover.on ? Color.surfaceRaised : Color.surface))
             .contentShape(Rectangle())
+        }
+        .buttonStyle(PressableStyle())
+        .onHover { hover.on = $0 }
+        .animation(Motion.hover, value: hover.on)
+    }
+}
+
+private struct BreakButton: View {
+    var title: String
+    var tint: Color
+    var prominent: Bool
+    var action: () -> Void
+    @StateObject private var hover = HoverState()
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(Typography.caption)
+                .foregroundStyle(prominent ? Color.black.opacity(0.8) : (hover.on ? Color.textPrimary : Color.textSecondary))
+                .frame(maxWidth: .infinity)
+                .frame(height: 28)
+                .background(Capsule().fill(prominent ? tint : (hover.on ? Color.surfaceRaised : Color.surface)))
+                .contentShape(Capsule())
         }
         .buttonStyle(PressableStyle())
         .onHover { hover.on = $0 }

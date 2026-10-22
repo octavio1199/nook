@@ -15,6 +15,13 @@ final class NotchInteraction {
     private(set) var captureRequest = 0
     /// While pinned, the open panel ignores pointer exits and outside clicks.
     var isPinned = false
+
+    /// Context menus and pickers draw outside the panel; while one is open, leaving the
+    /// panel's area must not close it.
+    @ObservationIgnored private var menuDepth = 0
+    /// After a menu closes the pointer is usually still outside the panel (where the menu was),
+    /// so stay open until the pointer comes back over the panel.
+    @ObservationIgnored private var holdUntilPointerReturns = false
     var geometry: NotchGeometry
 
     private let settings: AppSettings
@@ -91,11 +98,25 @@ final class NotchInteraction {
                 if notch.isPointerOver(notch.state) { notch.open() }
             }
         case .open:
-            guard !inside, !buttonHeld, !isPinned else { return cancelHover() }
+            if holdUntilPointerReturns {
+                if inside { holdUntilPointerReturns = false }
+                return cancelHover()
+            }
+            guard !inside, !buttonHeld, !isPinned, menuDepth == 0 else { return cancelHover() }
             scheduleHover(after: .milliseconds(220)) { notch in
                 if !notch.isPointerOver(.open), !notch.buttonHeld { notch.close() }
             }
         }
+    }
+
+    func menuDidBeginTracking() {
+        menuDepth += 1
+        cancelHover()
+    }
+
+    func menuDidEndTracking() {
+        menuDepth = max(menuDepth - 1, 0)
+        if state == .open, menuDepth == 0 { holdUntilPointerReturns = true }
     }
 
     func mouseDown(at point: NSPoint) {
@@ -155,6 +176,7 @@ final class NotchInteraction {
         peekTask?.cancel()
         holdingPeek = false
         isPinned = false
+        holdUntilPointerReturns = false
         waitingForPointerExit = pointerStaysOver
         withAnimation(Motion.close) { state = .closed }
     }

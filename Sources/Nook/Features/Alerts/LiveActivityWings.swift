@@ -23,6 +23,8 @@ struct LiveActivityWings: View {
 
     @ViewBuilder private var leftWing: some View {
         switch activity {
+        case .focus where focus.phase?.isBreak == true:
+            BreakTipLine(long: focus.phase == .longBreak)
         case .focus:
             let tint = focus.phase?.tint ?? .focus
             let stopwatch = focus.phase == .stopwatch
@@ -72,7 +74,7 @@ struct LiveActivityWings: View {
             Text(focus.displayText)
                 .font(.system(size: 12, weight: .semibold))
                 .monospacedDigit()
-                .foregroundStyle(Color.white.opacity(focus.isPaused ? 0.5 : 0.95))
+                .foregroundStyle(focus.phase?.isBreak == true ? Color.white : Color.white.opacity(focus.isPaused ? 0.5 : 0.95))
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
                 .contentTransition(.identity)
@@ -85,6 +87,25 @@ struct LiveActivityWings: View {
                     .foregroundStyle(Color.white.opacity(0.9))
                     .lineLimit(1)
             }
+        }
+    }
+}
+
+/// Rotating break suggestion ("🚰 Drink some water") that crossfades as it changes.
+struct BreakTipLine: View {
+    let long: Bool
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            let tip = BreakTips.tip(at: context.date, long: long)
+            Text(tip.line)
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundStyle(Color.white)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .id(tip.id)
+                .transition(.opacity)
+                .animation(Motion.fade, value: tip.id)
         }
     }
 }

@@ -3,6 +3,7 @@ import SwiftUI
 
 struct NotchRootView: View {
     @Environment(NotchInteraction.self) private var notch
+    @Environment(FocusTimer.self) private var focus
 
     var body: some View {
         let state = notch.state
@@ -45,7 +46,15 @@ struct NotchRootView: View {
         .background { NotchBackground(state: state, shape: shape, notchWidth: notch.geometry.notchSize.width, height: size.height) }
         .clipShape(shape)
         .compositingGroup()
-        .shadow(color: .black.opacity(state == .closed ? 0 : 0.55), radius: state == .open ? 26 : 14, y: 8)
+        .shadow(color: shadowColor(for: state), radius: state == .open ? 26 : 14, y: state == .closed ? 2 : 8)
+    }
+}
+
+extension NotchRootView {
+    /// Black drop shadow when open; a soft green glow around the closed notch during a break.
+    fileprivate func shadowColor(for state: NotchState) -> Color {
+        if state == .closed, focus.phase?.isBreak == true, notch.liveActivity == .focus { return BreakGreen.glow }
+        return .black.opacity(state == .closed ? 0 : 0.55)
     }
 }
 

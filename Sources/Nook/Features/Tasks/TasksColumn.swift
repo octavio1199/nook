@@ -5,8 +5,18 @@ struct TasksColumn: View {
     @Environment(NotchInteraction.self) private var notch
 
     enum Scope: String, CaseIterable, Identifiable {
-        case today = "Today", upcoming = "Upcoming", done = "Done"
+        case today, upcoming, done, archive
         var id: Self { self }
+
+        /// Short labels so four segments fit a ~250pt column.
+        var label: String {
+            switch self {
+            case .today: "Today"
+            case .upcoming: "Next"
+            case .done: "Done"
+            case .archive: ""
+            }
+    }
     }
 
     @LocalState private var scope: Scope = .today
@@ -14,6 +24,7 @@ struct TasksColumn: View {
     @LocalState private var detailID: UUID?
     @FocusState private var captureFocused: Bool
     @Namespace private var switcherNamespace
+    @StateObject private var toaster = UndoToaster()
 
     var body: some View {
         TimelineView(.everyMinute) { context in
@@ -25,17 +36,19 @@ struct TasksColumn: View {
         let today = planner.todayTasks(now: now)
         let upcoming = planner.upcomingTasks(now: now)
         let done = planner.doneTasks()
+        let archived = planner.archivedTasks()
         let visible: [TaskItem] = switch scope {
         case .today: today
         case .upcoming: upcoming
         case .done: done
+        case .archive: archived
         }
-        let counts: [Scope: Int] = [.today: today.count, .upcoming: upcoming.count, .done: done.count]
+        let counts: [Scope: Int] = [.today: today.count, .upcoming: upcoming.count, .done: done.count, .archive: archived.count]
 
         return Card("Tasks", symbol: "checklist") {
             ZStack {
                 if let id = detailID, planner.task(id) != nil {
-                    TaskDetailView(taskID: id, now: now) { detailID = nil }
+                    TaskDetailView(taskID: id, now: now, toaster: toaster) { detailID = nil }
                         .transition(.opacity.combined(with: .offset(x: 14)))
                 } else {
                     VStack(alignment: .leading, spacing: 8) {
@@ -47,7 +60,15 @@ struct TasksColumn: View {
                 }
             }
             .animation(Motion.navigate, value: detailID)
+            .overlay(alignment: .bottom) {
+                if let toast = toaster.toast {
+                    UndoToastView(toast: toast) { toaster.undo(planner.undoManager) }
+                        .id(toast.id)
+                        .padding(.bottom, 2)
+                }
+            }
         }
+        .onAppear { toaster.observe(planner.undoManager) }
         .onChange(of: notch.captureRequest) { captureFocused = true }
     }
 
@@ -66,6 +87,17 @@ struct TasksColumn: View {
                     .foregroundStyle(Color.textPrimary)
                     .focused($captureFocused)
                     .onSubmit { submit(now: now) }
+                Button {
+                    captureFocused = true
+                    DispatchQueue.main.async { NSApp.orderFrontCharacterPalette(nil) }
+                } label: {
+                    Image(systemName: "face.smiling")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color.textTertiary)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Emoji & Symbols (⌃⌘Space)")
             }
             .padding(.horizontal, 9)
             .padding(.vertical, 7)
@@ -104,11 +136,17 @@ struct TasksColumn: View {
                     withAnimation(Motion.navigate) { scope = item }
                 } label: {
                     HStack(spacing: 4) {
-                        Text(item.rawValue)
+                        if item == .archive {
+                            Image(systemName: "archivebox").font(.system(size: 9, weight: .medium))
+                        } else {
+                            Text(item.label)
+                        }
                         Text("\(counts[item] ?? 0)")
                             .foregroundStyle(selected ? Color.textSecondary : Color.textTertiary)
                     }
                     .font(Typography.caption)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
                     .foregroundStyle(selected ? Color.textPrimary : Color.textSecondary)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 4)
@@ -122,6 +160,7 @@ struct TasksColumn: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .help(item == .archive ? "Archive" : (item == .upcoming ? "Upcoming" : item.label))
             }
         }
         .padding(2)
@@ -139,9 +178,16 @@ struct TasksColumn: View {
         } else {
             ScrollView(.vertical, showsIndicators: false) {
                 LazyVStack(spacing: 1) {
+                    if scope == .done { archiveAllBar(count: tasks.count) }
                     ForEach(tasks) { task in
-                        TaskRow(task: task, now: now, reorderable: scope == .today) {
-                            detailID = task.id
+                        Group {
+                            if scope == .archive {
+                                ArchivedRow(task: task, now: now, toaster: toaster) { detailID = task.id }
+                            } else {
+                                TaskRow(task: task, now: now, reorderable: scope == .today, toaster: toaster) {
+                                    detailID = task.id
+                                }
+                            }
                         }
                             .transition(.asymmetric(
                                 insertion: .opacity.combined(with: .offset(y: -4)),
@@ -154,6 +200,27 @@ struct TasksColumn: View {
             .frame(maxHeight: .infinity)
             .animation(Motion.navigate, value: tasks.map(\.id))
         }
+    }
+
+    private func archiveAllBar(count: Int) -> some View {
+        HStack {
+            Spacer(minLength: 0)
+            Button {
+                withAnimation(Motion.navigate) { planner.archiveDone() }
+                toaster.show(count == 1 ? "Archived 1 done task" : "Archived \(count) done tasks", symbol: "archivebox")
+            } label: {
+                Label("Archive all", systemImage: "archivebox")
+                    .font(Typography.micro)
+                    .foregroundStyle(Color.textSecondary)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(Capsule().fill(Color.surface))
+                    .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .help("Archive all done tasks (⌘Z to undo)")
+        }
+        .padding(.bottom, 3)
     }
 }
 
@@ -223,6 +290,7 @@ private struct EmptyState: View {
         case .today: "sun.max"
         case .upcoming: "calendar"
         case .done: "checkmark.circle"
+        case .archive: "archivebox"
         }
     }
 
@@ -231,6 +299,7 @@ private struct EmptyState: View {
         case .today: "A clear day. Add something above\nor enjoy the quiet."
         case .upcoming: "Nothing scheduled ahead.\nTry “dentist friday 9am”."
         case .done: "Finished tasks will show up here."
+        case .archive: "Archived tasks show up here.\nRestore them anytime."
         }
     }
 }
@@ -244,6 +313,7 @@ private struct TaskRow: View {
     let task: TaskItem
     let now: Date
     let reorderable: Bool
+    let toaster: UndoToaster
     let onOpen: () -> Void
 
     @LocalState private var hovering = false
@@ -283,16 +353,16 @@ private struct TaskRow: View {
                     .transition(.opacity.combined(with: .scale(scale: 0.8)))
                 }
                 Button {
-                    withAnimation(Motion.navigate) { planner.archive(task.id) }
+                    archive()
                 } label: {
-                    Image(systemName: "xmark")
+                    Image(systemName: "archivebox")
                         .font(.system(size: 8, weight: .bold))
                         .foregroundStyle(Color.textSecondary)
                         .frame(width: 16, height: 16)
                         .background(Circle().fill(Color.surfaceRaised))
                 }
                 .buttonStyle(.plain)
-                .help("Delete")
+                .help("Archive (⌘Z to undo)")
                 .transition(.opacity.combined(with: .scale(scale: 0.8)))
             }
         }
@@ -329,7 +399,7 @@ private struct TaskRow: View {
 
     private var checkbox: some View {
         Button {
-            withAnimation(Motion.pop) { planner.toggle(task.id) }
+            toggle()
         } label: {
             ZStack {
                 Circle()
@@ -431,7 +501,18 @@ private struct TaskRow: View {
             }
         }
         Divider()
-        Button("Archive", role: .destructive) { withAnimation(Motion.navigate) { planner.archive(task.id) } }
+        Button("Archive", systemImage: "archivebox") { archive() }
+    }
+
+    private func archive() {
+        withAnimation(Motion.navigate) { planner.archive(task.id) }
+        toaster.show("Archived", task.title, symbol: "archivebox")
+    }
+
+    private func toggle() {
+        let completing = !task.done
+        withAnimation(Motion.pop) { planner.toggle(task.id) }
+        if completing { toaster.show("Completed", task.title, symbol: "checkmark.circle") }
     }
 
     private func reschedule(_ target: TaskActions.Reschedule) {
@@ -457,6 +538,79 @@ private struct ReorderModifier: ViewModifier {
         } else {
             content
         }
+    }
+}
+
+// MARK: - Archived row
+
+private struct ArchivedRow: View {
+    @Environment(PlannerStore.self) private var planner
+    let task: TaskItem
+    let now: Date
+    let toaster: UndoToaster
+    let onOpen: () -> Void
+
+    @LocalState private var hovering = false
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 8) {
+            Image(systemName: "archivebox")
+                .font(.system(size: 10))
+                .foregroundStyle(Color.textTertiary)
+                .frame(width: 15)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(task.title)
+                    .font(Typography.body)
+                    .foregroundStyle(Color.textSecondary.opacity(0.7))
+                    .lineLimit(2)
+                if let at = task.archivedAt {
+                    Text("archived \(ArchiveFormat.ago(at, now: now))")
+                        .font(Typography.micro)
+                        .foregroundStyle(Color.textTertiary)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            if hovering {
+                iconButton("arrow.uturn.backward", help: "Restore", tint: .textSecondary, action: restore)
+                iconButton("trash", help: "Delete forever (⌘Z to undo)", tint: .red, action: deleteForever)
+            }
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 5)
+        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(hovering ? Color.surface : .clear))
+        .contentShape(Rectangle())
+        .onTapGesture { onOpen() }
+        .onHover { hovering = $0 }
+        .animation(Motion.hover, value: hovering)
+        .contextMenu {
+            Button("Restore", systemImage: "arrow.uturn.backward") { restore() }
+            Button("Open Details") { onOpen() }
+            Divider()
+            Button("Delete Forever", systemImage: "trash", role: .destructive) { deleteForever() }
+        }
+    }
+
+    private func iconButton(_ symbol: String, help: String, tint: Color, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 8, weight: .bold))
+                .foregroundStyle(tint)
+                .frame(width: 16, height: 16)
+                .background(Circle().fill(tint == .red ? Color.red.opacity(0.14) : Color.surfaceRaised))
+        }
+        .buttonStyle(.plain)
+        .help(help)
+        .transition(.opacity.combined(with: .scale(scale: 0.8)))
+    }
+
+    private func restore() {
+        withAnimation(Motion.navigate) { planner.unarchive(task.id) }
+        toaster.show("Restored", task.title, symbol: "arrow.uturn.backward")
+    }
+
+    private func deleteForever() {
+        withAnimation(Motion.navigate) { planner.delete(task.id) }
+        toaster.show("Deleted", task.title, symbol: "trash")
     }
 }
 

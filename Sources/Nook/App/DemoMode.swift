@@ -32,6 +32,9 @@ enum DemoMode {
             switch scene {
             case "peek":
                 app.notch.enqueue(NotchAlert(kind: .focusFinished, symbol: "checkmark.circle.fill", tint: .focus, headline: "Focus done", detail: "Take a break · 5 min"))
+            case "break":
+                app.focus.startPomodoro(.with(id: "classic"))
+                app.focus.skip()
             case "live":
                 app.focus.startPomodoro(.with(id: "classic"), label: "Write release notes")
             case "insights":

@@ -7,6 +7,7 @@ struct TaskDetailView: View {
 
     let taskID: UUID
     let now: Date
+    var toaster: UndoToaster?
     let onBack: () -> Void
 
     @LocalState private var titleDraft = ""
@@ -54,8 +55,41 @@ struct TaskDetailView: View {
             }
             .buttonStyle(.plain)
             Spacer(minLength: 0)
-            focusButton(task)
+            if task.archivedAt != nil { archivedControls(task) } else { focusButton(task) }
         }
+    }
+
+    private func archivedControls(_ task: TaskItem) -> some View {
+        HStack(spacing: 5) {
+            Label("Archived", systemImage: "archivebox")
+                .font(Typography.micro)
+                .foregroundStyle(Color.textSecondary)
+                .padding(.horizontal, 7)
+                .frame(height: 22)
+                .background(Capsule().fill(Color.surfaceRaised))
+            pill("Restore", symbol: "arrow.uturn.backward", tint: .accent) {
+                withAnimation(Motion.navigate) { planner.unarchive(task.id) }
+                toaster?.show("Restored", task.title, symbol: "arrow.uturn.backward")
+            }
+            pill("Delete", symbol: "trash", tint: .red) {
+                toaster?.show("Deleted", task.title, symbol: "trash")
+                withAnimation(Motion.navigate) { planner.delete(task.id) }
+            }
+            .help("Delete forever (⌘Z to undo)")
+        }
+    }
+
+    private func pill(_ title: String, symbol: String, tint: Color, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: symbol)
+                .font(Typography.micro)
+                .foregroundStyle(tint)
+                .padding(.horizontal, 8)
+                .frame(height: 22)
+                .background(Capsule().fill(tint.opacity(0.14)))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
     }
 
     @ViewBuilder

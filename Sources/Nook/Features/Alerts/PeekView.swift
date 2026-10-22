@@ -21,7 +21,7 @@ struct PeekView: View {
                     .foregroundStyle(Color.textPrimary)
                     .lineLimit(1)
                 if let detail = alert.detail, !detail.isEmpty {
-                    Text(detail)
+                    Text(detailText(detail))
                         .font(.system(size: 11))
                         .foregroundStyle(Color.textSecondary)
                         .lineLimit(1)
@@ -61,6 +61,18 @@ struct PeekView: View {
         .frame(height: 56)
         .contentShape(Rectangle())
         .onTapGesture(perform: onTap)
+    }
+
+    /// Adds the break emoji row to "Focus done" while a break is running, and 💪 to "Break over".
+    private func detailText(_ detail: String) -> String {
+        switch alert.kind {
+        case .focusFinished where focus.phase?.isBreak == true:
+            return "\(detail) \(BreakTips.emojiRow)"
+        case .breakFinished:
+            return "\(detail) 💪"
+        default:
+            return detail
+        }
     }
 
     private struct PillAction {
