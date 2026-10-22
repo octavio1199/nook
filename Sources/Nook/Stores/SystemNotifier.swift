@@ -310,7 +310,7 @@ final class SystemNotifier: NSObject, UNUserNotificationCenterDelegate {
 
     private func currentPresence() -> PresenceContext {
         var context = presence
-        context.fullScreenOnNotchDisplay = Self.otherAppIsFullScreenOnNotchDisplay()
+        context.fullScreenOnNotchDisplay = Self.otherAppIsFullScreen(on: notch.geometry.screenFrame)
         return context
     }
 
@@ -342,12 +342,11 @@ final class SystemNotifier: NSObject, UNUserNotificationCenterDelegate {
     }
 
     /// Another app has a window covering the whole notch display (full-screen app or Space).
-    private static func otherAppIsFullScreenOnNotchDisplay() -> Bool {
-        guard let screen = NotchGeometry.notchedScreen,
+    private static func otherAppIsFullScreen(on frame: NSRect) -> Bool {
+        guard frame.width > 0,
               let primaryHeight = NSScreen.screens.first?.frame.height,
               let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]]
         else { return false }
-        let frame = screen.frame
         let cgOrigin = CGPoint(x: frame.minX, y: primaryHeight - frame.maxY)
         let ownPID = ProcessInfo.processInfo.processIdentifier
         for window in windows {

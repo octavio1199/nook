@@ -17,10 +17,6 @@ struct NotchGeometry: Equatable {
         )
     }
 
-    static var notchedScreen: NSScreen? {
-        NSScreen.screens.first { $0.safeAreaInsets.top > 0 } ?? NSScreen.main ?? NSScreen.screens.first
-    }
-
     static let placeholder = NotchGeometry(screenFrame: .zero, notchSize: CGSize(width: 180, height: 24), hasNotch: false)
 }
 

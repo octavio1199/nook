@@ -18,7 +18,8 @@ struct NotchRootView: View {
                     .transition(.opacity.combined(with: .offset(y: -10)))
             }
         }
-        .opacity(state == .closed && !notch.geometry.hasNotch ? 0 : 1)
+        // No notch to extend: closed and idle, Nook is only an invisible hover zone at the top center.
+        .opacity(state == .closed && !notch.geometry.hasNotch && notch.liveActivity == nil ? 0 : 1)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .animation(Motion.peek, value: notch.liveActivity)
     }

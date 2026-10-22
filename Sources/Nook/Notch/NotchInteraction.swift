@@ -111,9 +111,10 @@ final class NotchInteraction {
         }
     }
 
-    /// What the closed notch shows beside the camera, if anything.
+    /// What the closed notch shows beside the camera, if anything. On a display without a notch
+    /// it shows as a pill in the middle of the menu bar.
     var liveActivity: LiveActivity? {
-        guard geometry.hasNotch, settings.showsLiveActivity else { return nil }
+        guard settings.showsLiveActivity else { return nil }
         if focus.awaitingDecision { return .checkIn }
         if focus.isActive { return .focus }
         if let event = agenda.startingSoon { return .event(event) }

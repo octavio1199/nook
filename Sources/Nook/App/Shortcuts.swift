@@ -61,7 +61,7 @@ nonisolated struct Shortcut: Codable, Equatable, Hashable {
 
 /// Shortcuts that work from any app. Each can be rebound in Settings.
 nonisolated enum GlobalAction: String, CaseIterable, Identifiable, Codable {
-    case toggle, newTask, pin, focus
+    case toggle, newTask, pin, focus, moveHere
 
     var id: Self { self }
 
@@ -71,6 +71,7 @@ nonisolated enum GlobalAction: String, CaseIterable, Identifiable, Codable {
         case .newTask: "New task"
         case .pin: "Pin / unpin the panel"
         case .focus: "Start a focus (pick a task)"
+        case .moveHere: "Move Nook to the display under the mouse"
         }
     }
 
@@ -82,6 +83,7 @@ nonisolated enum GlobalAction: String, CaseIterable, Identifiable, Codable {
         case .newTask: Shortcut(keyCode: kVK_ANSI_N, modifiers: cmdKey | optionKey, key: "N")
         case .pin: Shortcut(keyCode: kVK_ANSI_P, modifiers: controlKey | optionKey, key: "P")
         case .focus: Shortcut(keyCode: kVK_ANSI_S, modifiers: controlKey | optionKey, key: "S")
+        case .moveHere: Shortcut(keyCode: kVK_ANSI_M, modifiers: controlKey | optionKey, key: "M")
         }
     }
 }

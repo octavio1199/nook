@@ -49,7 +49,7 @@ private final class MessageState: ObservableObject {
     @Published var text: String?
 }
 
-private struct GeneralPage: View {
+struct GeneralPage: View {
     @Environment(AppSettings.self) private var settings
     @StateObject private var login = LoginState()
 
@@ -64,6 +64,7 @@ private struct GeneralPage: View {
                 ForEach(OpenMode.allCases) { Text($0.title).tag($0) }
             }
             .pickerStyle(.segmented)
+            DisplayPicker()
             Toggle("Show agenda in the workspace", isOn: $settings.showsAgenda)
             Picker("Workday starts", selection: Binding(
                 get: { settings.workdayStart },
@@ -357,5 +358,71 @@ struct KeyboardPage: View {
         }
         .formStyle(.grouped)
         .onDisappear { recorder.stop(settings: settings, hotKeys: hotKeys) }
+    }
+}
+
+// MARK: - Display
+
+/// Settings › General › Show Nook on. Lists the connected displays, refreshed when they change.
+private struct DisplayPicker: View {
+    @Environment(AppSettings.self) private var settings
+    @StateObject private var screens = ScreenList()
+
+    var body: some View {
+        @Bindable var settings = settings
+        VStack(alignment: .leading, spacing: 4) {
+            Picker("Show Nook on", selection: $settings.displayChoice) {
+                Text(automaticTitle).tag(DisplayChoice.automatic)
+                Text("Main display (menu bar)").tag(DisplayChoice.main)
+                Text("Follow the mouse").tag(DisplayChoice.followMouse)
+                Divider()
+                ForEach(screens.items, id: \.id) { screen in
+                    Text(title(for: screen)).tag(DisplayChoice.display(screen.id))
+                }
+                if case .display(let id) = settings.displayChoice, !screens.items.contains(where: { $0.id == id }) {
+                    Text("Saved display (not connected)").tag(settings.displayChoice)
+                }
+            }
+            Text(footnote)
+                .font(.callout).foregroundStyle(.secondary)
+        }
+    }
+
+    private var automaticTitle: String {
+        screens.items.contains { $0.hasNotch } ? "Automatic (built-in display)" : "Automatic (main display)"
+    }
+
+    private func title(for screen: ScreenInfo) -> String {
+        var extras: [String] = []
+        if screen.hasNotch { extras.append("notch") }
+        if screen.isMain { extras.append("menu bar") }
+        return extras.isEmpty ? screen.name : "\(screen.name) (\(extras.joined(separator: ", ")))"
+    }
+
+    private var footnote: String {
+        let shortcut = settings.shortcut(for: .moveHere).symbols
+        switch settings.displayChoice {
+        case .followMouse: return "Nook moves to the display you're using whenever it's closed."
+        case .display(let id) where !screens.items.contains(where: { $0.id == id }):
+            return "That display isn't connected, so Nook is on the automatic one until it comes back."
+        default: return "Without a notch, Nook sits at the top center, under the menu bar. \(shortcut) moves it to the display under the mouse."
+        }
+    }
+}
+
+private final class ScreenList: ObservableObject {
+    @Published var items: [ScreenInfo] = NSScreen.screens.map(\.info)
+    private var observer: NSObjectProtocol?
+
+    init() {
+        observer = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.items = NSScreen.screens.map(\.info) }
+        }
+    }
+
+    isolated deinit {
+        if let observer { NotificationCenter.default.removeObserver(observer) }
     }
 }

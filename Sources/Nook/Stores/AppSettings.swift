@@ -39,6 +39,8 @@ final class AppSettings {
     /// Working hours for auto-planning, in minutes since midnight (default 09:00 to 18:00).
     var workdayStart: Int { didSet { defaults.set(workdayStart, forKey: "workdayStart") } }
     var workdayEnd: Int { didSet { defaults.set(workdayEnd, forKey: "workdayEnd") } }
+    /// The display Nook lives on.
+    var displayChoice: DisplayChoice { didSet { defaults.set(displayChoice.storageValue, forKey: "displayChoice") } }
     /// Global shortcuts the user rebound; the rest use `GlobalAction.defaultShortcut`.
     private(set) var customShortcuts: [GlobalAction: Shortcut] {
         didSet {
@@ -92,6 +94,7 @@ final class AppSettings {
         let valid = (0..<1440).contains(start) && (1...1440).contains(end) && start < end
         workdayStart = valid ? start : 9 * 60
         workdayEnd = valid ? end : 18 * 60
+        displayChoice = DisplayChoice(storageValue: defaults.string(forKey: "displayChoice"))
         let stored = defaults.data(forKey: "shortcuts").flatMap { try? JSONDecoder().decode([String: Shortcut].self, from: $0) } ?? [:]
         customShortcuts = Dictionary(uniqueKeysWithValues: stored.compactMap { key, value in
             GlobalAction(rawValue: key).map { ($0, value) }

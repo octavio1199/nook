@@ -26,7 +26,9 @@ final class NotchPanelController {
             .newTask: { [weak self] in self?.newTaskFromKeyboard() },
             .pin: { [weak self] in self?.pinFromKeyboard() },
             .focus: { [weak self] in self?.focusFromKeyboard() },
+            .moveHere: { [weak self] in self?.moveToPointerScreen() },
         ]
+        observeDisplayChoice()
         if DemoMode.scene == nil { app.hotKeys.apply(app.settings) }
         NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
@@ -139,17 +141,58 @@ final class NotchPanelController {
         }
     }
 
+    /// Displays plugged in or out, resolution or arrangement changed, lid opened or closed.
     private func screensChanged() {
-        guard let screen = NotchGeometry.notchedScreen else { return }
+        relocate()
+    }
+
+    /// Puts the panel on the display the settings ask for (a disconnected display falls back to the
+    /// built-in or main one; the choice is kept for when it comes back).
+    private func relocate(force: Bool = true) {
+        guard let screen = NSScreen.nook(for: app.settings.displayChoice) else { return }
         let target = NotchGeometry(screen: screen)
         guard target != notch.geometry else { return }
-        if target.screenFrame != notch.geometry.screenFrame { notch.close() }
+        if target.screenFrame != notch.geometry.screenFrame {
+            // "Follow the mouse" never yanks an open panel or a peek away from under the user.
+            guard force || notch.state == .closed else { return }
+            notch.close()
+        }
+        notch.geometry = target
+        panel.setFrame(target.panelFrame, display: true)
+        updateMouseCapture()
+    }
+
+    /// Re-arms after each change (observation fires once).
+    private func observeDisplayChoice() {
+        withObservationTracking {
+            _ = app.settings.displayChoice
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.relocate()
+                self?.observeDisplayChoice()
+            }
+        }
+    }
+
+    /// Demo screenshots: puts the panel on `screen` without touching the saved choice.
+    func place(on screen: NSScreen) {
+        let target = NotchGeometry(screen: screen)
         notch.geometry = target
         panel.setFrame(target.panelFrame, display: true)
     }
 
+    /// Global shortcut: pins Nook to the display the pointer is on.
+    private func moveToPointerScreen() {
+        guard let screen = NSScreen.nook(for: .followMouse) else { return }
+        app.settings.displayChoice = .display(screen.displayUUID)
+    }
+
     private func pointerChanged(_ event: NSEvent) {
         let buttonHeld = event.type == .leftMouseDragged
+        if app.settings.displayChoice == .followMouse, !buttonHeld,
+           !notch.geometry.screenFrame.contains(NSEvent.mouseLocation) {
+            relocate(force: false)
+        }
         notch.mouseMoved(to: NSEvent.mouseLocation, buttonHeld: buttonHeld)
         if notch.state == .open, buttonHeld { return }
         updateMouseCapture()

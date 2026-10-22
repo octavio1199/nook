@@ -37,6 +37,12 @@ enum DemoMode {
     }
 
     static func run(_ scene: String, app: AppDependencies, panel: NotchPanelController) {
+        // `--demo-screen external`: the first display without a notch (the no-notch look).
+        let args = ProcessInfo.processInfo.arguments
+        if let index = args.firstIndex(of: "--demo-screen"), args.indices.contains(index + 1), args[index + 1] == "external",
+           let screen = NSScreen.screens.first(where: { $0.safeAreaInsets.top == 0 }) {
+            panel.place(on: screen)
+        }
         Task {
             try? await Task.sleep(for: .milliseconds(600))
             switch scene {
@@ -100,7 +106,9 @@ enum DemoMode {
                 app.notch.isPinned = true
                 app.workspace.setTasksWidth(560, available: 760)
             case "keyboard":
-                renderSettingsPage(app: app)
+                renderSettingsPage(KeyboardPage(), app: app)
+            case "general":
+                renderSettingsPage(GeneralPage(), app: app)
             case "composer-dump":
                 app.notch.open()
                 app.notch.isPinned = true
@@ -127,10 +135,10 @@ enum DemoMode {
     }
 
     /// The Settings window isn't part of the panel; render the Keyboard page on its own.
-    private static func renderSettingsPage(app: AppDependencies) {
+    private static func renderSettingsPage(_ page: some View, app: AppDependencies) {
         let args = ProcessInfo.processInfo.arguments
         guard let index = args.firstIndex(of: "--snapshot"), args.indices.contains(index + 1) else { return }
-        let view = NSHostingView(rootView: app.inject(into: KeyboardPage()).frame(width: 520, height: 420))
+        let view = NSHostingView(rootView: app.inject(into: page).frame(width: 520, height: 420))
         view.frame = NSRect(x: 0, y: 0, width: 520, height: 420)
         let window = NSWindow(contentRect: view.frame, styleMask: [.titled], backing: .buffered, defer: false)
         window.contentView = view
