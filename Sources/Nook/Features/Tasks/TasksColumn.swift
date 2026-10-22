@@ -283,7 +283,7 @@ private struct TaskRow: View {
                     .transition(.opacity.combined(with: .scale(scale: 0.8)))
                 }
                 Button {
-                    withAnimation(Motion.navigate) { planner.delete(task.id) }
+                    withAnimation(Motion.navigate) { planner.archive(task.id) }
                 } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 8, weight: .bold))
@@ -431,7 +431,7 @@ private struct TaskRow: View {
             }
         }
         Divider()
-        Button("Delete", role: .destructive) { withAnimation(Motion.navigate) { planner.delete(task.id) } }
+        Button("Archive", role: .destructive) { withAnimation(Motion.navigate) { planner.archive(task.id) } }
     }
 
     private func reschedule(_ target: TaskActions.Reschedule) {

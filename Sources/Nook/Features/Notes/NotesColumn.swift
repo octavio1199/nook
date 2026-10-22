@@ -30,6 +30,8 @@ struct NotesColumn: View {
         .onAppear(perform: load)
         .onChange(of: text) { save() }
         .onChange(of: day) { load() }
+        // The store edits notes too (sent lines disappear when their task is done, undo restores them).
+        .onChange(of: planner.note(for: day)) { load() }
         .onReceive(NotificationCenter.default.publisher(for: .nookShowNotesDay)) { note in
             guard let key = note.object as? String, let date = DayKey.date(from: key) else { return }
             save()
@@ -41,6 +43,7 @@ struct NotesColumn: View {
 
     private var toolbar: some View {
         HStack(spacing: 4) {
+            toolButton("face.smiling", help: "Emoji (⌃⌘Space)", active: false) { NSApp.orderFrontCharacterPalette(nil) }
             toolButton("text.word.spacing", help: wrapLines ? "Line wrap: on" : "Line wrap: off", active: wrapLines) { wrapLines.toggle() }
             Button { showHints.toggle() } label: {
                 Text("Aa")
@@ -174,7 +177,10 @@ struct NotesColumn: View {
         var tasks = CaptureParser.parse(MarkdownStyler.plainContent(of: line))
         guard !tasks.isEmpty else { return false }
         let source = DayKey.string(for: day)
-        for index in tasks.indices { tasks[index].sourceDay = source }
+        for index in tasks.indices {
+            tasks[index].sourceDay = source
+            tasks[index].sourceLine = line.trimmingCharacters(in: .whitespaces)
+        }
         withAnimation(Motion.navigate) { planner.add(tasks) }
         sentCount = tasks.count
         flashTask?.cancel()

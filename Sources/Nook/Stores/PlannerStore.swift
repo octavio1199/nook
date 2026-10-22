@@ -11,6 +11,7 @@ struct PlannerData: Codable {
 final class PlannerStore {
     private(set) var data: PlannerData
 
+    @ObservationIgnored let undoManager = UndoManager()
     @ObservationIgnored private let url: URL?
     @ObservationIgnored private var saveTask: Task<Void, Never>?
 
@@ -36,16 +37,16 @@ final class PlannerStore {
     // MARK: - Task views
 
     func todayTasks(now: Date = Date()) -> [TaskItem] {
-        data.tasks.filter { !$0.done && $0.isDue(onOrBefore: now) }.sorted(by: Self.ordering)
+        data.tasks.filter { !$0.done && $0.archivedAt == nil && $0.isDue(onOrBefore: now) }.sorted(by: Self.ordering)
     }
 
     func upcomingTasks(now: Date = Date()) -> [TaskItem] {
-        data.tasks.filter { !$0.done && !$0.isDue(onOrBefore: now) }
+        data.tasks.filter { !$0.done && $0.archivedAt == nil && !$0.isDue(onOrBefore: now) }
             .sorted { ($0.due ?? .distantFuture, $0.order) < ($1.due ?? .distantFuture, $1.order) }
     }
 
     func doneTasks(limit: Int = 50) -> [TaskItem] {
-        Array(data.tasks.filter(\.done).sorted { ($0.completedAt ?? .distantPast) > ($1.completedAt ?? .distantPast) }.prefix(limit))
+        Array(data.tasks.filter { $0.done && $0.archivedAt == nil }.sorted { ($0.completedAt ?? .distantPast) > ($1.completedAt ?? .distantPast) }.prefix(limit))
     }
 
     private static func ordering(_ a: TaskItem, _ b: TaskItem) -> Bool {
@@ -62,30 +63,53 @@ final class PlannerStore {
     }
 
     func add(_ tasks: [TaskItem]) {
-        let base = (data.tasks.map(\.order).max() ?? 0) + 1
-        for (offset, var task) in tasks.enumerated() {
-            task.order = base + Double(offset)
-            data.tasks.append(task)
+        guard !tasks.isEmpty else { return }
+        mutate(tasks.count == 1 ? "Add Task" : "Add Tasks") { data in
+            let base = (data.tasks.map(\.order).max() ?? 0) + 1
+            for (offset, var task) in tasks.enumerated() {
+                task.order = base + Double(offset)
+                data.tasks.append(task)
+            }
         }
-        scheduleSave()
     }
 
     func update(_ task: TaskItem) {
-        guard let index = data.tasks.firstIndex(where: { $0.id == task.id }) else { return }
-        data.tasks[index] = task
-        scheduleSave()
+        guard let index = data.tasks.firstIndex(where: { $0.id == task.id }), data.tasks[index] != task else { return }
+        mutate("Edit Task") { $0.tasks[index] = task }
     }
 
     func toggle(_ id: TaskItem.ID) {
         guard let index = data.tasks.firstIndex(where: { $0.id == id }) else { return }
-        data.tasks[index].done.toggle()
-        data.tasks[index].completedAt = data.tasks[index].done ? Date() : nil
-        scheduleSave()
+        mutate(data.tasks[index].done ? "Reopen Task" : "Complete Task") { data in
+            data.tasks[index].done.toggle()
+            data.tasks[index].completedAt = data.tasks[index].done ? Date() : nil
+        }
     }
 
+    /// Soft delete: the task moves to the archive, where it can be restored.
+    func archive(_ id: TaskItem.ID) {
+        guard let index = data.tasks.firstIndex(where: { $0.id == id }) else { return }
+        mutate("Archive Task") { $0.tasks[index].archivedAt = Date() }
+    }
+
+    func unarchive(_ id: TaskItem.ID) {
+        guard let index = data.tasks.firstIndex(where: { $0.id == id }) else { return }
+        mutate("Restore Task") { $0.tasks[index].archivedAt = nil }
+    }
+
+    /// Archives every completed task at once.
+    func archiveDone() {
+        let now = Date()
+        mutate("Archive Done Tasks") { data in
+            for index in data.tasks.indices where data.tasks[index].done && data.tasks[index].archivedAt == nil {
+                data.tasks[index].archivedAt = now
+            }
+        }
+    }
+
+    /// Permanent delete (from the archive). Still undoable with ⌘Z while the app runs.
     func delete(_ id: TaskItem.ID) {
-        data.tasks.removeAll { $0.id == id }
-        scheduleSave()
+        mutate("Delete Task") { $0.tasks.removeAll { $0.id == id } }
     }
 
     /// Moves `id` so it sits right before `target` in manual ordering.
@@ -93,8 +117,60 @@ final class PlannerStore {
         guard id != target, let targetOrder = data.tasks.first(where: { $0.id == target })?.order,
               let index = data.tasks.firstIndex(where: { $0.id == id }) else { return }
         let previous = data.tasks.map(\.order).filter { $0 < targetOrder }.max() ?? (targetOrder - 1)
-        data.tasks[index].order = (previous + targetOrder) / 2
+        mutate("Move Task") { $0.tasks[index].order = (previous + targetOrder) / 2 }
+    }
+
+    func archivedTasks() -> [TaskItem] {
+        data.tasks.filter { $0.archivedAt != nil }.sorted { ($0.archivedAt ?? .distantPast) > ($1.archivedAt ?? .distantPast) }
+    }
+
+    // MARK: - Undo
+
+    /// Every task mutation snapshots the whole store, so ⌘Z restores exactly what was there,
+    /// including notepad lines that were cleaned up as a side effect.
+    private func mutate(_ action: String, _ body: (inout PlannerData) -> Void) {
+        let before = data
+        body(&data)
+        removeSentLines(resolvedSince: before)
+        registerUndo(restoring: before, action: action)
         scheduleSave()
+    }
+
+    private func registerUndo(restoring snapshot: PlannerData, action: String) {
+        let current = data
+        undoManager.registerUndo(withTarget: self) { store in
+            MainActor.assumeIsolated {
+                store.data = snapshot
+                store.scheduleSave()
+                store.registerUndo(restoring: current, action: action)
+            }
+        }
+        undoManager.setActionName(action)
+    }
+
+    /// When every task sent from a notepad line (⌘↩) is done, archived or deleted,
+    /// the "→ line" marker is removed from that day's note.
+    private func removeSentLines(resolvedSince before: PlannerData) {
+        let open = Set(data.tasks.filter { !$0.done && $0.archivedAt == nil }.compactMap(Self.sentLineKey))
+        let candidates = Set(before.tasks.compactMap(Self.sentLineKey)).subtracting(open)
+        for key in candidates {
+            guard var note = data.notes[key.day] else { continue }
+            var lines = note.components(separatedBy: "\n")
+            guard let index = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == "→ " + key.line }) else { continue }
+            lines.remove(at: index)
+            note = lines.joined(separator: "\n")
+            if note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { data.notes.removeValue(forKey: key.day) } else { data.notes[key.day] = note }
+        }
+    }
+
+    private struct SentLineKey: Hashable {
+        var day: String
+        var line: String
+    }
+
+    private static func sentLineKey(_ task: TaskItem) -> SentLineKey? {
+        guard let day = task.sourceDay, let line = task.sourceLine else { return nil }
+        return SentLineKey(day: day, line: line.trimmingCharacters(in: .whitespaces))
     }
 
     func task(_ id: TaskItem.ID?) -> TaskItem? {
@@ -104,6 +180,7 @@ final class PlannerStore {
 
     func setNotes(_ notes: String, for id: TaskItem.ID) {
         guard let index = data.tasks.firstIndex(where: { $0.id == id }) else { return }
+        // Typing in a task's notes has its own text undo, so this bypasses the store's undo.
         data.tasks[index].notes = notes.isEmpty ? nil : notes
         scheduleSave()
     }

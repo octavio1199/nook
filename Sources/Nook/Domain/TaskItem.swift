@@ -32,6 +32,10 @@ struct TaskItem: Identifiable, Codable, Equatable, Hashable {
     var notes: String?
     /// `DayKey` of the notepad page this task was sent from with ⌘↩, if any.
     var sourceDay: String?
+    /// The notepad line (without the "→ " marker) this task was sent from.
+    var sourceLine: String?
+    /// Set when the task is archived (soft-deleted); archived tasks can be restored.
+    var archivedAt: Date?
 }
 
 extension TaskItem {

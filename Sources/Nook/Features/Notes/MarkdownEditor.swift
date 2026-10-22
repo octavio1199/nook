@@ -298,7 +298,12 @@ struct MarkdownEditor: NSViewRepresentable {
         var wraps = true
         private var fenceCount = 0
 
+        /// Each editor keeps its own text undo, separate from the task undo stack on the panel.
+        let undo = UndoManager()
+
         init(_ parent: MarkdownEditor) { self.parent = parent }
+
+        func undoManager(for view: NSTextView) -> UndoManager? { undo }
 
         func textDidChange(_ notification: Notification) {
             guard let tv = textView, parent.text != tv.string else { return }

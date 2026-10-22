@@ -26,6 +26,10 @@ final class NotchPanel: NSPanel {
         contentView = hosting
     }
 
+    var undoProvider: (() -> UndoManager?)?
+
+    override var undoManager: UndoManager? { undoProvider?() ?? super.undoManager }
+
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 }

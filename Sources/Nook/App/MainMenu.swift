@@ -25,6 +25,9 @@ enum MainMenu {
         plain.keyEquivalentModifierMask = [.command, .option, .shift]
         edit.addItem(withTitle: "Delete", action: #selector(NSText.delete(_:)), keyEquivalent: "")
         edit.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        edit.addItem(.separator())
+        let emoji = edit.addItem(withTitle: "Emoji & Symbols", action: #selector(NSApplication.orderFrontCharacterPalette(_:)), keyEquivalent: " ")
+        emoji.keyEquivalentModifierMask = [.command, .control]
         editItem.submenu = edit
         main.addItem(editItem)
 

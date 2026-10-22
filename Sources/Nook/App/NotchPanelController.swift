@@ -12,6 +12,7 @@ final class NotchPanelController {
         self.app = app
         panel = NotchPanel(rootView: app.inject(into: NotchRootView()))
         panel.setFrame(app.notch.geometry.panelFrame, display: true)
+        panel.undoProvider = { [planner = app.planner] in planner.undoManager }
         panel.orderFrontRegardless()
 
         notch.onStateChange = { [weak self] state in self?.stateChanged(to: state) }
