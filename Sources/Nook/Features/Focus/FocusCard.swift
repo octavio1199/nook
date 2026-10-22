@@ -59,6 +59,9 @@ struct FocusCard: View {
                     Image(systemName: "scope").font(.system(size: 9, weight: .semibold))
                     Text(title ?? "Focus on…").font(Typography.caption).lineLimit(1)
                     Spacer(minLength: 0)
+                    if title != nil, let minutes = selectedTask?.estimateMinutes, minutes > 0 {
+                        Text("~\(TaskTime.estimateText(minutes))").font(Typography.micro).foregroundStyle(Color.textTertiary)
+                    }
                     Image(systemName: "chevron.up.chevron.down").font(.system(size: 8, weight: .semibold))
                 }
                 .foregroundStyle(title == nil ? Color.textSecondary : Color.textPrimary)
@@ -232,7 +235,13 @@ private struct ActiveFocusView: View {
                         Text(label)
                             .font(Typography.caption)
                             .foregroundStyle(Color.textSecondary)
-                            .lineLimit(2)
+                            .lineLimit(estimateLine == nil ? 2 : 1)
+                        if let estimateLine {
+                            Text(estimateLine.text)
+                                .font(Typography.micro)
+                                .monospacedDigit()
+                                .foregroundStyle(estimateLine.over ? Color.accent : Color.textTertiary)
+                        }
                         changeMenu(title: "change")
                     } else if focus.phase?.isBreak == false {
                         changeMenu(title: "Choose a task")
@@ -249,6 +258,14 @@ private struct ActiveFocusView: View {
             }
             controls(tint: tint)
         }
+    }
+
+    /// "20 of 50m" for the task being focused on, when it has an estimate.
+    private var estimateLine: (text: String, over: Bool)? {
+        guard let task = planner.task(focus.taskID), let estimate = task.estimateMinutes, estimate > 0,
+              focus.phase?.countsAsFocus == true else { return nil }
+        let tracked = TaskActions.trackedTime(for: task.id, planner: planner, focus: focus)
+        return (TaskTime.ofText(tracked: tracked, estimate: estimate), TaskTime.isOver(tracked: tracked, estimate: estimate))
     }
 
     private func changeMenu(title: String) -> some View {
@@ -339,6 +356,12 @@ private struct TaskPicker<Content: View>: View {
     var choose: (TaskItem?) -> Void
     @ViewBuilder var label: (String?) -> Content
 
+    /// "Write spec  ·  ~50m" when the task has an estimate.
+    static func menuTitle(_ task: TaskItem) -> String {
+        guard let minutes = task.estimateMinutes, minutes > 0 else { return task.title }
+        return "\(task.title)  ·  ~\(TaskTime.estimateText(minutes))"
+    }
+
     var body: some View {
         Menu {
             Button { choose(nil) } label: {
@@ -347,7 +370,8 @@ private struct TaskPicker<Content: View>: View {
             if !tasks.isEmpty { Divider() }
             ForEach(tasks) { task in
                 Button { choose(task) } label: {
-                    if selected?.id == task.id { Label(task.title, systemImage: "checkmark") } else { Text(task.title) }
+                    let title = Self.menuTitle(task)
+                    if selected?.id == task.id { Label(title, systemImage: "checkmark") } else { Text(title) }
                 }
             }
         } label: {

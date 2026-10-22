@@ -7,12 +7,10 @@ struct TasksColumn: View {
     typealias Scope = TaskScope
 
     @Environment(WorkspaceState.self) private var workspace
-    @FocusState private var captureFocused: Bool
     @Namespace private var switcherNamespace
     private var toaster: UndoToaster { workspace.toaster }
     private var scope: Scope { workspace.taskScope }
     private var detailID: UUID? { workspace.detailTaskID }
-    private var draft: String { workspace.captureDraft }
 
     var body: some View {
         TimelineView(.everyMinute) { context in
@@ -40,7 +38,7 @@ struct TasksColumn: View {
                         .transition(.opacity.combined(with: .offset(x: 14)))
                 } else {
                     VStack(alignment: .leading, spacing: 8) {
-                        captureField(now: now)
+                        newTaskButton
                         switcher(counts: counts)
                         taskList(visible, now: now)
                     }
@@ -59,76 +57,32 @@ struct TasksColumn: View {
         .onAppear {
             toaster.observe(planner.undoManager)
             if let id = workspace.detailTaskID, planner.task(id) == nil { workspace.detailTaskID = nil }
-            if notch.takePendingCapture() {
-                workspace.detailTaskID = nil
-                DispatchQueue.main.async { captureFocused = true }
-            }
+            _ = notch.takePendingCapture()
+            notch.onEscape = { [workspace] in workspace.dismissComposerIfOpen() }
+            syncCaptureRequest()
         }
-        .onChange(of: notch.captureRequest) {
-            if notch.captureLeavesDetail { workspace.detailTaskID = nil }
-            DispatchQueue.main.async { captureFocused = true }
+        .onDisappear {
+            workspace.closeComposer()
+            notch.onEscape = nil
         }
+        .onChange(of: notch.captureRequest) { syncCaptureRequest() }
     }
 
-    // MARK: - Capture
-
-    private var draftBinding: Binding<String> {
-        Binding(get: { workspace.captureDraft }, set: { workspace.captureDraft = $0 })
+    /// ⌥⌘N, ⌘N and "Quick capture" open the composer. The "first click focuses the capture field"
+    /// request (`captureLeavesDetail == false`) has no field to focus any more, so it is only consumed.
+    private func syncCaptureRequest() {
+        guard notch.captureRequest != workspace.seenCaptureRequest else { return }
+        workspace.seenCaptureRequest = notch.captureRequest
+        guard notch.captureLeavesDetail else { return }
+        workspace.detailTaskID = nil
+        workspace.openComposer()
     }
 
-    private func captureField(now: Date) -> some View {
-        let parsed = draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? [] : CaptureParser.parse(draft, now: now)
-        return VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                Image(systemName: "plus")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(captureFocused ? Color.accent : Color.textTertiary)
-                TextField("", text: draftBinding, prompt: Text("Add a task… try “call Ana tomorrow 3pm !high #work”").foregroundStyle(Color.textTertiary))
-                    .textFieldStyle(.plain)
-                    .font(Typography.body)
-                    .foregroundStyle(Color.textPrimary)
-                    .focused($captureFocused)
-                    .onSubmit { submit(now: now) }
-                Button {
-                    captureFocused = true
-                    DispatchQueue.main.async { NSApp.orderFrontCharacterPalette(nil) }
-                } label: {
-                    Image(systemName: "face.smiling")
-                        .font(.system(size: 11))
-                        .foregroundStyle(Color.textTertiary)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help("Emoji & Symbols (⌃⌘Space)")
-            }
-            .padding(.horizontal, 9)
-            .padding(.vertical, 7)
-            .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Color.surface))
-            .overlay(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .strokeBorder(captureFocused ? Color.accent.opacity(0.6) : Color.hairline)
-            )
-            .animation(Motion.hover, value: captureFocused)
-
-            if !parsed.isEmpty {
-                CapturePreview(tasks: parsed, now: now)
-                    .transition(.opacity.combined(with: .offset(y: -3)))
-            }
-        }
-        .animation(Motion.navigate, value: parsed.count)
-        .animation(Motion.navigate, value: parsed.first)
-    }
-
-    private func submit(now: Date) {
-        let tasks = CaptureParser.parse(draft, now: now)
-        guard !tasks.isEmpty else { return }
-        withAnimation(Motion.navigate) {
-            planner.add(tasks)
-            workspace.captureDraft = ""
+    private var newTaskButton: some View {
+        NewTaskButton(draftTitle: workspace.composer.isEmpty ? nil : workspace.composer.title) {
+            withAnimation(Motion.navigate) { workspace.openComposer() }
         }
     }
-
-    // MARK: - Switcher
 
     private func switcher(counts: [Scope: Int]) -> some View {
         HStack(spacing: 2) {
@@ -228,28 +182,42 @@ struct TasksColumn: View {
 
 // MARK: - Preview chips
 
-private struct CapturePreview: View {
-    let tasks: [TaskItem]
-    let now: Date
+private struct NewTaskButton: View {
+    /// nil when there is no draft; otherwise the draft's (possibly empty) title.
+    let draftTitle: String?
+    let action: () -> Void
+    @LocalState private var hovering = false
 
     var body: some View {
-        HStack(spacing: 4) {
-            if tasks.count > 1 {
-                Chip(text: "\(tasks.count) tasks", symbol: "square.stack", tint: .accent)
-            } else if let task = tasks.first {
-                if task.due != nil {
-                    Chip(text: TaskFormat.dueText(task, now: now), symbol: task.hasTime ? "clock" : "calendar", tint: .accent)
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: "plus")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(Color.accent)
+                if let draftTitle {
+                    Text("Draft").font(Typography.caption).foregroundStyle(Color.accent)
+                    Text(draftTitle.isEmpty ? "untitled" : draftTitle)
+                        .font(Typography.body)
+                        .foregroundStyle(Color.textSecondary)
+                        .lineLimit(1)
+                } else {
+                    Text("New task").font(Typography.body).foregroundStyle(Color.textPrimary)
                 }
-                if task.priority != .none {
-                    Chip(text: task.priority.shortTitle, symbol: "flag.fill", tint: task.priority.tint)
-                }
-                ForEach(task.tags, id: \.self) { Chip(text: "#\($0)", tint: .textSecondary) }
+                Spacer(minLength: 4)
+                Text(Shortcut.togglePanel.symbols)
+                    .font(Typography.micro)
+                    .foregroundStyle(Color.textTertiary)
             }
-            Spacer(minLength: 0)
-            Text("↩")
-                .font(Typography.micro)
-                .foregroundStyle(Color.textTertiary)
+            .padding(.horizontal, 9)
+            .frame(height: 28)
+            .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(hovering ? Color.surfaceRaised : Color.surface))
+            .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Color.hairline))
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .animation(Motion.hover, value: hovering)
+        .help("New task (⌘N)")
     }
 }
 
@@ -267,7 +235,7 @@ struct Chip: View {
     var body: some View {
         HStack(spacing: 3) {
             if let symbol { Image(systemName: symbol).font(.system(size: 8, weight: .bold)) }
-            Text(text).font(Typography.micro).lineLimit(1)
+            if !text.isEmpty { Text(text).font(Typography.micro).lineLimit(1) }
         }
         .foregroundStyle(tint)
         .padding(.horizontal, 6)
@@ -337,6 +305,10 @@ private struct TaskRow: View {
                     }
                 }
                 if hasChips { chips }
+                if let estimate, tracked >= TaskTime.minimum, !task.done {
+                    EstimateBar(fraction: TaskTime.fraction(tracked: tracked, estimate: estimate), over: isOver)
+                        .padding(.trailing, 4)
+                }
             }
             Spacer(minLength: 0)
             if hovering && !editing {
@@ -396,10 +368,16 @@ private struct TaskRow: View {
     private var isFocused: Bool { focus.isActive && focus.taskID == task.id }
 
     /// Focus time logged against this task (nil under a minute).
-    private var timeText: String? { TaskTime.chip(planner.focusTime(for: task.id)) }
+    private var tracked: TimeInterval { TaskActions.trackedTime(for: task.id, planner: planner, focus: focus) }
+
+    private var timeText: String? { TaskTime.chip(tracked) }
+
+    private var estimate: Int? { task.estimateMinutes.flatMap { $0 > 0 ? $0 : nil } }
+
+    private var isOver: Bool { estimate.map { TaskTime.isOver(tracked: tracked, estimate: $0) } ?? false }
 
     private var hasChips: Bool {
-        task.due != nil || task.priority != .none || !task.tags.isEmpty || timeText != nil
+        task.due != nil || task.priority != .none || !task.tags.isEmpty || timeText != nil || estimate != nil
     }
 
     private var checkbox: some View {
@@ -452,26 +430,34 @@ private struct TaskRow: View {
     }
 
     private var chips: some View {
-        // Narrow column: if everything doesn't fit, the tags go rather than getting squeezed.
+        // Narrow column: if everything doesn't fit, the tags go first, then a plain "Today" date,
+        // then the priority's label (its flag stays), rather than the row getting squeezed.
         ViewThatFits(in: .horizontal) {
             chipRow(withTags: true)
             chipRow(withTags: false)
+            chipRow(withTags: false, compact: 1)
+            chipRow(withTags: false, compact: 2)
         }
         .opacity(task.done ? 0.65 : 1)
     }
 
-    private func chipRow(withTags: Bool) -> some View {
-        HStack(spacing: 4) {
-            if task.due != nil {
-                let overdue = task.isOverdue(now: now)
+    private func chipRow(withTags: Bool, compact: Int = 0) -> some View {
+        let overdue = task.isOverdue(now: now)
+        let plainToday = !task.hasTime && !overdue && task.due.map { Calendar.current.isDate($0, inSameDayAs: now) } == true
+        return HStack(spacing: 4) {
+            if task.due != nil, !(compact >= 1 && plainToday) {
                 Chip(text: TaskFormat.dueText(task, now: now),
                      symbol: task.hasTime ? "clock" : "calendar",
                      tint: overdue ? .red : .textSecondary)
             }
             if task.priority != .none {
-                Chip(text: task.priority.shortTitle, symbol: "flag.fill", tint: task.priority.tint)
+                Chip(text: compact >= 2 ? "" : task.priority.shortTitle, symbol: "flag.fill", tint: task.priority.tint)
             }
-            if let timeText {
+            if let estimate {
+                Chip(text: TaskTime.progressText(tracked: tracked, estimate: estimate), symbol: "stopwatch",
+                     tint: isOver ? .accent : (timeText == nil ? .textTertiary : (task.done ? .rest : .focus)))
+                    .help(isOver ? "Over the \(TaskTime.estimateText(estimate)) estimate" : "Focused / estimated")
+            } else if let timeText {
                 Chip(text: task.done ? "took \(timeText)" : timeText, symbol: "stopwatch", tint: task.done ? .rest : .focus)
             }
             if withTags {
@@ -536,6 +522,25 @@ private struct TaskRow: View {
 
     private func reschedule(_ target: TaskActions.Reschedule) {
         TaskActions.reschedule(task, to: target, in: planner)
+    }
+}
+
+/// Thin tracked-vs-estimated underline; orange once the estimate is exceeded.
+private struct EstimateBar: View {
+    let fraction: Double
+    let over: Bool
+
+    var body: some View {
+        let tint: Color = over ? .accent : .focus
+        Capsule()
+            .fill(tint.opacity(0.18))
+            .frame(height: 2)
+            .overlay(alignment: .leading) {
+                GeometryReader { proxy in
+                    Capsule().fill(tint).frame(width: proxy.size.width * (over ? 1 : fraction))
+                }
+            }
+            .animation(Motion.fade, value: fraction)
     }
 }
 

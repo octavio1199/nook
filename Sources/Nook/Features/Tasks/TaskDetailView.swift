@@ -165,6 +165,7 @@ struct TaskDetailView: View {
                     Chip(text: "Priority", symbol: "flag", tint: .textTertiary)
                 }
             }
+            EstimateMenu(minutes: task.estimateMinutes, onSelect: { TaskActions.setEstimate(task, $0, in: planner) }, showsAdjust: true)
             ForEach(task.tags, id: \.self) { Chip(text: "#\($0)", tint: .textTertiary) }
             Spacer(minLength: 0)
         }
@@ -178,13 +179,13 @@ struct TaskDetailView: View {
     @ViewBuilder
     private func meta(_ task: TaskItem) -> some View {
         let sessions = planner.sessions.filter { $0.taskID == task.id }.sorted { $0.start > $1.start }
-        let total = sessions.reduce(0) { $0 + $1.duration }
+        let total = TaskActions.trackedTime(for: task.id, planner: planner, focus: focus)
         let logged = TaskTime.chip(total)
         let source = task.sourceDay.flatMap { key in TaskActions.dayText(key).map { (key, $0) } }
         if logged != nil || source != nil {
             VStack(alignment: .leading, spacing: 4) {
                 if let logged {
-                    sessionsSummary(logged: logged, done: task.done, sessions: sessions)
+                    sessionsSummary(logged: logged, done: task.done, sessions: sessions, tracked: total, estimate: task.estimateMinutes)
                 }
                 if let (key, text) = source {
                     Button {
@@ -205,15 +206,21 @@ struct TaskDetailView: View {
     }
 
     /// "1h 05m focused · 3 sessions", expandable into the sessions behind the total.
-    private func sessionsSummary(logged: String, done: Bool, sessions: [FocusSession]) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
+    private func sessionsSummary(logged: String, done: Bool, sessions: [FocusSession], tracked: TimeInterval, estimate: Int?) -> some View {
+        let over = estimate.map { TaskTime.isOver(tracked: tracked, estimate: $0) } ?? false
+        return VStack(alignment: .leading, spacing: 3) {
             Button {
                 withAnimation(Motion.navigate) { showSessions.toggle() }
             } label: {
                 HStack(spacing: 5) {
                     Image(systemName: "stopwatch").font(.system(size: 9, weight: .semibold)).frame(width: 12)
                     Text(done ? "Took \(logged)" : "\(logged) focused")
-                    Text("· \(sessions.count) \(sessions.count == 1 ? "session" : "sessions")").foregroundStyle(Color.textTertiary)
+                    if let estimate {
+                        Text("of ~\(TaskTime.estimateText(estimate))").foregroundStyle(over ? Color.accent : Color.textSecondary)
+                    }
+                    if !sessions.isEmpty {
+                        Text("· \(sessions.count) \(sessions.count == 1 ? "session" : "sessions")").foregroundStyle(Color.textTertiary)
+                    }
                     Image(systemName: "chevron.down")
                         .font(.system(size: 7, weight: .bold))
                         .foregroundStyle(Color.textTertiary)

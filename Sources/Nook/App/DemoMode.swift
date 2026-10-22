@@ -13,13 +13,17 @@ enum DemoMode {
         let now = Date()
         let cal = Calendar.current
         let today3pm = cal.date(bySettingHour: 15, minute: 0, second: 0, of: now)
-        store.add(CaptureParser.parse("Review Pullo PR #work !high; call Ana tomorrow 3pm; buy coffee #home; write release notes !med #work"))
+        store.add(CaptureParser.parse("Review Pullo PR #work !high ~30m; call Ana tomorrow 3pm ~15m; buy coffee #home; write release notes !med #work ~1h30"))
+        if let review = store.tasks.first(where: { $0.title == "Review Pullo PR" }) {
+            store.log(FocusSession(start: now.addingTimeInterval(-5 * 3600), duration: 40 * 60, label: review.title, taskID: review.id))
+        }
         store.add(TaskItem(title: "Design review", due: today3pm, hasTime: true, priority: .medium, tags: ["design"]))
         var done = TaskItem(title: "Ship v0.1", done: true)
         done.completedAt = now
         store.add(done)
         store.log(FocusSession(start: now.addingTimeInterval(-3 * 3600), duration: 47 * 60, label: done.title, taskID: done.id))
-        let launch = TaskItem(title: "Draft launch post", due: cal.startOfDay(for: now), priority: .high, tags: ["work"])
+        var launch = TaskItem(title: "Draft launch post", due: cal.startOfDay(for: now), priority: .high, tags: ["work"])
+        launch.estimateMinutes = 50
         store.add(launch)
         store.log(FocusSession(start: now.addingTimeInterval(-26 * 3600), duration: 25 * 60, label: launch.title, taskID: launch.id))
         store.log(FocusSession(start: now.addingTimeInterval(-2 * 3600), duration: 5 * 60, label: launch.title, taskID: launch.id))
@@ -56,8 +60,28 @@ enum DemoMode {
                 app.notch.open()
                 app.notch.isPinned = true
                 app.notch.show(.insights)
+            case "composer":
+                app.notch.open()
+                app.notch.isPinned = true
+                var draft = ComposerDraft()
+                draft.title = "Write launch checklist tomorrow 9am !high #work ~50m"
+                draft.notes = "- [ ] copy review\n- [ ] screenshots\nSee **Draft launch post**"
+                draft.startFocus = true
+                app.workspace.composer = draft
+                app.workspace.openComposer()
+            case "composer-dump":
+                app.notch.open()
+                app.notch.isPinned = true
+                var draft = ComposerDraft()
+                draft.title = "buy coffee ~10m; call Ana tomorrow 3pm; write release notes ~1h"
+                app.workspace.composer = draft
+                app.workspace.openComposer()
             default:
-                app.focus.startPomodoro(.with(id: "classic"), label: "Write release notes")
+                if let launch = app.planner.tasks.first(where: { $0.title == "Draft launch post" }) {
+                    app.focus.startPomodoro(.with(id: "classic"), label: launch.title, taskID: launch.id)
+                } else {
+                    app.focus.startPomodoro(.with(id: "classic"), label: "Write release notes")
+                }
                 app.notch.open()
                 app.notch.isPinned = true
             }

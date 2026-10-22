@@ -47,12 +47,39 @@ nonisolated enum CaptureParser {
         }
 
         // Dates / times.
+        task.estimateMinutes = extractEstimate(from: &s)
+
         let when = extractWhen(from: &s, now: now, calendar: calendar)
         task.due = when?.date
         task.hasTime = when?.hasTime ?? false
 
         task.title = cleanTitle(s)
         return task.title.isEmpty ? nil : task
+    }
+
+    /// `~25m`, `~1h`, `~1h30`, `~1h30m`, `~1.5h`, `~90m`, `~45` (minutes), and the worded forms
+    /// `est 45m` / `estimate 2h` (a unit is required there). Removes the token from `s`.
+    /// A bare `~3pm` is left alone for the time parser: the number must be followed by a unit or the end of the word.
+    private static func extractEstimate(from s: inout String) -> Int? {
+        let hours = #"(\d+(?:[.,]\d+)?)\s*(?:h|hr|hrs|hours?|horas?)(?:\s*(\d{1,2})(?:\s*m(?:in(?:s|utes?)?)?)?)?"#
+        let minutes = #"(\d{1,4})\s*(?:m|mins?|minutes?|minutos?)"#
+        var total: Int?
+        func read(_ caps: [String?]) -> Int? {
+            if let h = caps[1], let value = Double(h.replacingOccurrences(of: ",", with: ".")) {
+                return Int((value * 60).rounded()) + (Int(caps[2] ?? "") ?? 0)
+            }
+            return Int(caps[3] ?? "") ?? Int(caps[4] ?? "")
+        }
+        let tilde = "\(b)~\\s*(?:\(hours)|\(minutes)|(\\d{1,4}))\(e)"
+        let worded = "\(b)(?:estimate|est)\\.?\\s+(?:\(hours)|\(minutes))\(e)"
+        for pattern in [tilde, worded] {
+            if let caps = take(pattern, from: &s) {
+                total = read(caps)
+                break
+            }
+        }
+        guard let total, total > 0 else { return nil }
+        return min(total, 24 * 60)
     }
 
     private static func priority(for token: String) -> TaskItem.Priority? {

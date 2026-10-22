@@ -29,6 +29,12 @@ enum TaskActions {
         planner.update(updated)
     }
 
+    static func setEstimate(_ task: TaskItem, _ minutes: Int?, in planner: PlannerStore) {
+        var updated = task
+        updated.estimateMinutes = minutes
+        planner.update(updated)
+    }
+
     static func rename(_ task: TaskItem, to raw: String, planner: PlannerStore, focus: FocusTimer) {
         let title = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !title.isEmpty, title != task.title else { return }

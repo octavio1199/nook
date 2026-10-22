@@ -18,6 +18,7 @@ struct WorkspaceView: View {
                 .frame(width: 230)
             }
         }
+        .overlay { TaskComposerOverlay() }
     }
 }
 

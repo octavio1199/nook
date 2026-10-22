@@ -19,7 +19,11 @@ enum TaskScope: String, CaseIterable, Identifiable {
 /// UI state that must outlive the workspace views (they are destroyed whenever the panel isn't `.open`).
 @Observable
 final class WorkspaceState {
-    var captureDraft = ""
+    /// The task composer's draft (title, notes, chips, focus). Survives the panel closing.
+    var composer = ComposerDraft()
+    private(set) var isComposerOpen = false
+    /// Last `NotchInteraction.captureRequest` the Tasks column acted on.
+    @ObservationIgnored var seenCaptureRequest = 0
     var taskScope: TaskScope = .today
     var detailTaskID: UUID?
     /// Day shown in the notepad (always a start-of-day date).
@@ -38,6 +42,31 @@ final class WorkspaceState {
         let start = calendar.startOfDay(for: now)
         today = start
         notesDay = start
+    }
+
+    /// The composer's title text (the old inline capture field's draft).
+    var captureDraft: String {
+        get { composer.title }
+        set { composer.title = newValue }
+    }
+
+    func openComposer() { isComposerOpen = true }
+
+    /// Esc / backdrop click: hides the composer but keeps the draft.
+    func closeComposer() { isComposerOpen = false }
+
+    /// After adding: forget the draft and hide the composer.
+    func finishComposer() {
+        composer = ComposerDraft()
+        isComposerOpen = false
+    }
+
+    /// Esc handler for the panel: true when it closed the composer, so the panel itself stays open.
+    @discardableResult
+    func dismissComposerIfOpen() -> Bool {
+        guard isComposerOpen else { return false }
+        isComposerOpen = false
+        return true
     }
 
     var notesDayIsToday: Bool { calendar.isDate(notesDay, inSameDayAs: today) }

@@ -285,4 +285,68 @@ struct CaptureParserTests {
         #expect(tasks[2].priority == .high)
         #expect(tasks[2].tags == ["família"])
     }
+
+    // MARK: Estimates
+
+    @Test func estimateFormats() {
+        let cases: [(String, Int)] = [
+            ("write spec ~25m", 25), ("write spec ~1h", 60), ("write spec ~1h30", 90), ("write spec ~1h30m", 90),
+            ("write spec ~90m", 90), ("write spec ~1.5h", 90), ("write spec ~45", 45), ("write spec ~ 20min", 20),
+            ("write spec est 45m", 45), ("write spec estimate 2h", 120), ("write spec Est 1h 15m", 75),
+            ("~15m write spec", 15),
+        ]
+        for (text, minutes) in cases {
+            let t = one(text)
+            #expect(t.estimateMinutes == minutes, "\(text)")
+            #expect(t.title == "write spec", "\(text)")
+        }
+    }
+
+    @Test func noEstimateByDefault() {
+        #expect(one("write spec").estimateMinutes == nil)
+        #expect(one("estimate the budget").estimateMinutes == nil)
+        #expect(one("open ~/Documents").title == "open ~/Documents")
+        #expect(one("fix est 5 bugs").estimateMinutes == nil)
+    }
+
+    @Test func estimateDoesNotClashWithTimes() {
+        let t = one("call Ana tomorrow 3pm ~25m")
+        #expect(t.title == "call Ana")
+        #expect(t.estimateMinutes == 25)
+        #expect(t.due == date(16, 15))
+        #expect(t.hasTime)
+
+        let u = one("call Ana ~1h30 tomorrow 3pm")
+        #expect(u.estimateMinutes == 90)
+        #expect(u.due == date(16, 15))
+
+        let v = one("standup ~3pm")
+        #expect(v.estimateMinutes == nil)
+        #expect(v.due == date(15, 15))
+
+        let w = one("call Ana ~1h 3pm")
+        #expect(w.estimateMinutes == 60)
+        #expect(w.due == date(15, 15))
+        #expect(w.title == "call Ana")
+    }
+
+    @Test func estimateWithEverything() {
+        let t = one("Review PR !high #work est 30m friday")
+        #expect(t.title == "Review PR")
+        #expect(t.priority == .high)
+        #expect(t.tags == ["work"])
+        #expect(t.estimateMinutes == 30)
+        #expect(t.due == date(17))
+    }
+
+    @Test func estimateIsPerBrainDumpLine() {
+        let tasks = parse("write ~25m; read ~1h; relax")
+        #expect(tasks.map(\.estimateMinutes) == [25, 60, nil])
+    }
+
+    @Test func zeroAndHugeEstimates() {
+        #expect(one("x ~0m").estimateMinutes == nil)
+        #expect(one("x ~0m").title == "x")
+        #expect(one("x ~99h").estimateMinutes == 24 * 60)
+    }
 }
