@@ -181,12 +181,18 @@ private struct AboutPage: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            Image(systemName: "rectangle.topthird.inset.filled").font(.system(size: 40)).foregroundStyle(.tint)
+            Image(nsImage: NSApp.applicationIconImage).resizable().frame(width: 72, height: 72)
             Text("Nook").font(.title.bold())
             Text("Version \(version)").foregroundStyle(.secondary)
-            Text("A free, open-source notch planner. MIT licensed.").multilineTextAlignment(.center)
-            Text("Notch shell adapted from Pullo by Gabriel Jordan (MIT)")
-                .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            Text("A free, open-source notch planner.").multilineTextAlignment(.center)
+            Text("Made by Octavio Rocha").font(.callout).foregroundStyle(.secondary)
+            HStack(spacing: 10) {
+                Button("GitHub") {
+                    if let url = URL(string: "https://github.com/octavio1199/nook") { NSWorkspace.shared.open(url) }
+                }
+                Button("Quit Nook") { NSApp.terminate(nil) }
+            }
+            .padding(.top, 8)
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)

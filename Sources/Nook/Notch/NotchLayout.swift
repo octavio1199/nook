@@ -4,6 +4,8 @@ import AppKit
 struct NotchLayout {
     static let switcherSpace: CGFloat = 52
     static let wingWidth: CGFloat = 78
+    /// Used while focusing on a task, so its title fits in the left wing.
+    static let labeledWingWidth: CGFloat = 170
 
     let geometry: NotchGeometry
     var closedWings: CGFloat = 0

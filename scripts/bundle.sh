@@ -30,7 +30,7 @@ if swift scripts/make-icon.swift "$ICON_TMP/icon.png" 2>/dev/null; then
 fi
 rm -rf "$ICON_TMP"
 
-codesign --force --deep -s - --options runtime "$APP"
+codesign --force --deep -s - --options runtime --entitlements Resources/Nook.entitlements "$APP"
 codesign --verify --deep "$APP" && echo "Signature OK (ad-hoc)."
 lipo -archs "$APP/Contents/MacOS/Nook" | sed 's/^/Architectures: /'
 echo "$PWD/$APP"

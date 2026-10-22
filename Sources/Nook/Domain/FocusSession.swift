@@ -5,4 +5,5 @@ struct FocusSession: Identifiable, Codable, Equatable {
     var start: Date
     var duration: TimeInterval
     var label: String?
+    var taskID: UUID?
 }

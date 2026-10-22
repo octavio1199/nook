@@ -97,6 +97,22 @@ final class PlannerStore {
         scheduleSave()
     }
 
+    func task(_ id: TaskItem.ID?) -> TaskItem? {
+        guard let id else { return nil }
+        return data.tasks.first { $0.id == id }
+    }
+
+    func setNotes(_ notes: String, for id: TaskItem.ID) {
+        guard let index = data.tasks.firstIndex(where: { $0.id == id }) else { return }
+        data.tasks[index].notes = notes.isEmpty ? nil : notes
+        scheduleSave()
+    }
+
+    /// Total focus logged against a task.
+    func focusTime(for id: TaskItem.ID) -> TimeInterval {
+        data.sessions.filter { $0.taskID == id }.reduce(0) { $0 + $1.duration }
+    }
+
     // MARK: - Notes
 
     func note(for day: Date) -> String {

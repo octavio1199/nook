@@ -43,6 +43,8 @@ final class FocusTimer {
     private(set) var phase: Phase?
     private(set) var isPaused = false
     private(set) var label: String?
+    /// The task being focused on, if one was picked. `label` mirrors its title.
+    private(set) var taskID: UUID?
     private(set) var duration: TimeInterval = 0
     private(set) var completedInCycle = 0
     private(set) var now = Date()
@@ -92,34 +94,41 @@ final class FocusTimer {
 
     // MARK: - Starting
 
-    func startPomodoro(_ preset: FocusPreset, label: String? = nil) {
+    func startPomodoro(_ preset: FocusPreset, label: String? = nil, taskID: UUID? = nil) {
         self.preset = preset
         completedInCycle = 0
-        begin(.focus, minutes: preset.focus, label: label)
+        begin(.focus, minutes: preset.focus, label: label, taskID: taskID)
+    }
+
+    /// Points the running (or next) session at a task, e.g. picked from the task list.
+    func focus(on task: TaskItem?) {
+        taskID = task?.id
+        label = task?.title
     }
 
     /// Continues the current pomodoro cycle (keeps the long-break count).
     func startNextFocus(label: String? = nil) {
-        begin(.focus, minutes: preset.focus, label: label)
+        begin(.focus, minutes: preset.focus, label: label ?? self.label, taskID: taskID)
     }
 
     /// Starts the break that follows the last finished focus session.
     func startBreak() {
         let long = completedInCycle > 0 && completedInCycle % preset.sessionsBeforeLongBreak == 0
-        begin(long ? .longBreak : .shortBreak, minutes: long ? preset.longBreak : preset.shortBreak, label: nil)
+        begin(long ? .longBreak : .shortBreak, minutes: long ? preset.longBreak : preset.shortBreak, label: label, taskID: taskID)
     }
 
-    func startCountdown(minutes: Int, label: String? = nil) {
-        begin(.countdown, minutes: minutes, label: label)
+    func startCountdown(minutes: Int, label: String? = nil, taskID: UUID? = nil) {
+        begin(.countdown, minutes: minutes, label: label, taskID: taskID)
     }
 
-    func startStopwatch(label: String? = nil) {
-        begin(.stopwatch, minutes: 0, label: label)
+    func startStopwatch(label: String? = nil, taskID: UUID? = nil) {
+        begin(.stopwatch, minutes: 0, label: label, taskID: taskID)
     }
 
-    private func begin(_ phase: Phase, minutes: Int, label: String?) {
+    private func begin(_ phase: Phase, minutes: Int, label: String?, taskID: UUID? = nil) {
         self.phase = phase
         self.label = label
+        self.taskID = taskID
         duration = TimeInterval(minutes * 60)
         accumulated = 0
         now = Date()
@@ -170,7 +179,6 @@ final class FocusTimer {
     private func reset() {
         stopTicking()
         phase = nil
-        label = nil
         isPaused = false
         duration = 0
         accumulated = 0
@@ -214,8 +222,7 @@ final class FocusTimer {
                 ))
             }
             if autoStartBreaks() {
-                let label = label
-                begin(long ? .longBreak : .shortBreak, minutes: long ? preset.longBreak : preset.shortBreak, label: label)
+                begin(long ? .longBreak : .shortBreak, minutes: long ? preset.longBreak : preset.shortBreak, label: label, taskID: taskID)
             } else {
                 reset()
             }
@@ -236,6 +243,6 @@ final class FocusTimer {
 
     private func logIfFocus() {
         guard let phase, phase.countsAsFocus, let startedAt else { return }
-        onSessionLogged?(FocusSession(start: startedAt, duration: elapsed, label: label))
+        onSessionLogged?(FocusSession(start: startedAt, duration: elapsed, label: label, taskID: taskID))
     }
 }

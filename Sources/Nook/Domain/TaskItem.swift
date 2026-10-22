@@ -28,6 +28,10 @@ struct TaskItem: Identifiable, Codable, Equatable, Hashable {
     var createdAt = Date()
     var completedAt: Date?
     var order: Double = 0
+    /// Markdown notes attached to this task.
+    var notes: String?
+    /// `DayKey` of the notepad page this task was sent from with ⌘↩, if any.
+    var sourceDay: String?
 }
 
 extension TaskItem {

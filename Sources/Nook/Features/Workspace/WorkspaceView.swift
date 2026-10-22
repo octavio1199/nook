@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct WorkspaceView: View {
@@ -56,6 +57,17 @@ private struct WorkspaceHeader: View {
                 }
                 .buttonStyle(.plain)
                 .help("Settings")
+                Button {
+                    NSApp.terminate(nil)
+                } label: {
+                    Image(systemName: "power")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Color.textSecondary)
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Quit Nook")
             }
         }
     }

@@ -43,7 +43,15 @@ final class NotchInteraction {
     }
 
     var layout: NotchLayout {
-        NotchLayout(geometry: geometry, closedWings: liveActivity == nil ? 0 : NotchLayout.wingWidth)
+        NotchLayout(geometry: geometry, closedWings: wingWidth)
+    }
+
+    var wingWidth: CGFloat {
+        switch liveActivity {
+        case nil: 0
+        case .focus: focus.label?.isEmpty == false ? NotchLayout.labeledWingWidth : NotchLayout.wingWidth
+        case .event: NotchLayout.wingWidth
+        }
     }
 
     /// What the closed notch shows beside the camera, if anything.

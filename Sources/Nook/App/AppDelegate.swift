@@ -6,6 +6,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: StatusItemController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        MainMenu.install()
         let app = DemoMode.scene == nil ? AppDependencies() : AppDependencies(planner: DemoMode.makeStore())
         let panel = NotchPanelController(app: app)
         panel.startListening()
