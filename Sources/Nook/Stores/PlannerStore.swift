@@ -179,6 +179,39 @@ final class PlannerStore {
         for (rank, index) in ranked.enumerated() { tasks[index].order = Double(rank + 1) }
     }
 
+    // MARK: - Time blocking
+
+    /// Places a task on the timeline (or removes it with `start: nil`). `minutes` also updates the estimate.
+    func schedule(_ id: TaskItem.ID, at start: Date?, minutes: Int? = nil) {
+        guard let index = data.tasks.firstIndex(where: { $0.id == id }) else { return }
+        mutate(start == nil ? "Unschedule Task" : "Schedule Task") { data in
+            data.tasks[index].scheduledStart = start
+            if let minutes { data.tasks[index].estimateMinutes = max(minutes, 5) }
+        }
+    }
+
+    /// Applies many block moves as one undoable step ("Plan my day", "Push rest of day").
+    func applySchedule(_ starts: [TaskItem.ID: Date?], action: String) {
+        guard !starts.isEmpty else { return }
+        mutate(action) { data in
+            for index in data.tasks.indices {
+                if let start = starts[data.tasks[index].id] { data.tasks[index].scheduledStart = start }
+            }
+        }
+    }
+
+    func setEstimate(_ minutes: Int?, for id: TaskItem.ID) {
+        guard let index = data.tasks.firstIndex(where: { $0.id == id }) else { return }
+        mutate("Change Estimate") { $0.tasks[index].estimateMinutes = minutes.map { max($0, 5) } }
+    }
+
+    /// Open tasks with a block on the given day, in time order.
+    func scheduledTasks(on day: Date, calendar: Calendar = .current) -> [TaskItem] {
+        data.tasks
+            .filter { $0.isOpen && $0.scheduledStart.map { calendar.isDate($0, inSameDayAs: day) } == true }
+            .sorted { ($0.scheduledStart ?? .distantPast) < ($1.scheduledStart ?? .distantPast) }
+    }
+
     func archivedTasks() -> [TaskItem] {
         data.tasks.filter { $0.archivedAt != nil }.sorted { ($0.archivedAt ?? .distantPast) > ($1.archivedAt ?? .distantPast) }
     }

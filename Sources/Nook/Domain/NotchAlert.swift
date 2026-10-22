@@ -5,6 +5,8 @@ struct NotchAlert: Identifiable, Equatable {
         case focusFinished, breakFinished, eventSoon, taskDue, focusPaused, info
         /// A focus on a task ran out: the user picks +5 min, break-and-continue or done.
         case taskCheckIn
+        /// A planned time block starts in a few minutes / right now (time blocking).
+        case blockSoon, blockStart
     }
 
     var id = UUID()

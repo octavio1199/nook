@@ -36,6 +36,9 @@ final class AppSettings {
     var eventAlertMinutes: Int { didSet { defaults.set(eventAlertMinutes, forKey: "eventAlertMinutes") } }
     var systemNotifications: SystemNotificationPolicy { didSet { defaults.set(systemNotifications.rawValue, forKey: "systemNotifications") } }
     var showsAgenda: Bool { didSet { defaults.set(showsAgenda, forKey: "showsAgenda") } }
+    /// Working hours for auto-planning, in minutes since midnight (default 09:00 to 18:00).
+    var workdayStart: Int { didSet { defaults.set(workdayStart, forKey: "workdayStart") } }
+    var workdayEnd: Int { didSet { defaults.set(workdayEnd, forKey: "workdayEnd") } }
 
     var launchAtLogin: Bool {
         get { SMAppService.mainApp.status == .enabled }
@@ -56,5 +59,10 @@ final class AppSettings {
         eventAlertMinutes = defaults.object(forKey: "eventAlertMinutes") as? Int ?? 5
         systemNotifications = SystemNotificationPolicy(rawValue: defaults.string(forKey: "systemNotifications") ?? "") ?? .whenAway
         showsAgenda = defaults.object(forKey: "showsAgenda") as? Bool ?? true
+        let start = defaults.object(forKey: "workdayStart") as? Int ?? 9 * 60
+        let end = defaults.object(forKey: "workdayEnd") as? Int ?? 18 * 60
+        let valid = (0..<1440).contains(start) && (1...1440).contains(end) && start < end
+        workdayStart = valid ? start : 9 * 60
+        workdayEnd = valid ? end : 18 * 60
     }
 }

@@ -3,10 +3,14 @@ import SwiftUI
 
 struct InsightsView: View {
     @Environment(PlannerStore.self) private var planner
+    /// nil = automatic: "Planned vs actual" whenever today has time blocks.
+    @LocalState private var showPlan: Bool?
 
     var body: some View {
         TimelineView(.everyMinute) { context in
             let summary = InsightsSummary(tasks: planner.tasks, sessions: planner.sessions, now: context.date)
+            let plan = PlannedVsActual(tasks: planner.tasks, sessions: planner.sessions, now: context.date)
+            let planMode = showPlan ?? !plan.rows.isEmpty
             VStack(spacing: 10) {
                 HStack(spacing: 10) {
                     StatTile(symbol: "checkmark.circle.fill", tint: .rest, value: "\(summary.tasksDoneToday)", label: "Tasks done today")
@@ -27,13 +31,38 @@ struct InsightsView: View {
                             .frame(width: 150, alignment: .leading)
                         }
                     }
-                    Card("Time per task", symbol: "stopwatch") {
-                        TaskTimeList(totals: summary.taskTimes)
+                    Card(planMode ? "Planned today" : "Time per task", symbol: planMode ? "calendar.day.timeline.left" : "stopwatch",
+                         trailing: AnyView(modeToggle(planMode))) {
+                        if planMode {
+                            PlannedVsActualList(plan: plan)
+                        } else {
+                            TaskTimeList(totals: summary.taskTimes)
+                        }
                     }
                     .frame(width: 270)
                 }
             }
         }
+    }
+
+    private func modeToggle(_ planMode: Bool) -> some View {
+        HStack(spacing: 2) {
+            toggleButton("stopwatch", selected: !planMode, help: "Time per task, last 7 days") { showPlan = false }
+            toggleButton("calendar.day.timeline.left", selected: planMode, help: "Planned vs actual, today") { showPlan = true }
+        }
+    }
+
+    private func toggleButton(_ symbol: String, selected: Bool, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(selected ? Color.textPrimary : Color.textTertiary)
+                .frame(width: 22, height: 18)
+                .background(Capsule().fill(selected ? Color.surfaceRaised : .clear))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .help(help)
     }
 
     static func hours(_ value: Double) -> String {

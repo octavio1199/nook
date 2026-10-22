@@ -11,6 +11,9 @@ final class NotchInteraction {
 
     private(set) var peekAlert: NotchAlert?
     private(set) var area: PanelArea = .workspace
+    /// Day tab: 0 = today, 1 = tomorrow.
+    private(set) var dayOffset = 0
+    static let maxDayOffset = 1
     /// Bumped whenever the capture field should take keyboard focus.
     private(set) var captureRequest = 0
     /// While pinned, the open panel ignores pointer exits and outside clicks.
@@ -40,6 +43,10 @@ final class NotchInteraction {
     @ObservationIgnored var onStateChange: ((NotchState) -> Void)?
     @ObservationIgnored var onNeedsKeyFocus: (() -> Void)?
     @ObservationIgnored var onFeedback: ((NotchAlert) -> Void)?
+    /// Source of the time block shown in the closed notch (set by `AppDependencies`).
+    @ObservationIgnored weak var blocks: BlockWatcher?
+    /// Asked first on Esc: a modal inside the panel (the task composer) returns true when it consumed the key.
+    @ObservationIgnored var onEscape: (() -> Bool)?
 
     /// Alerts waiting for the notch to be free (they arrived while open, or behind another peek).
     @ObservationIgnored private(set) var queuedAlerts: [NotchAlert] = []
@@ -97,6 +104,7 @@ final class NotchInteraction {
             focus.phase?.isBreak == true || focus.label?.isEmpty == false ? NotchLayout.labeledWingWidth : NotchLayout.wingWidth
         case .checkIn: NotchLayout.labeledWingWidth
         case .event: NotchLayout.wingWidth
+        case .block: NotchLayout.labeledWingWidth
         }
     }
 
@@ -106,6 +114,7 @@ final class NotchInteraction {
         if focus.awaitingDecision { return .checkIn }
         if focus.isActive { return .focus }
         if let event = agenda.startingSoon { return .event(event) }
+        if let block = blocks?.currentBlock { return .block(block) }
         return nil
     }
 
@@ -275,6 +284,12 @@ final class NotchInteraction {
         withAnimation(Motion.navigate) { self.area = area }
     }
 
+    func shiftDay(by delta: Int) {
+        let next = min(max(dayOffset + delta, 0), Self.maxDayOffset)
+        guard next != dayOffset else { return }
+        withAnimation(Motion.navigate) { dayOffset = next }
+    }
+
     func requestCapture(leavingDetail: Bool = true) {
         area = .workspace
         captureLeavesDetail = leavingDetail
@@ -303,6 +318,16 @@ final class NotchInteraction {
         queuedAlerts[queuedAlerts.count - 1].detail = [lastBaseDetail, "+\(overflow) more"]
             .compactMap { $0 }
             .joined(separator: " · ")
+    }
+
+    /// Drops queued (and the visible) time-block alerts for a task, once the user dealt with its block.
+    func withdrawBlockAlerts(for taskID: UUID) {
+        func isBlockAlert(_ alert: NotchAlert) -> Bool {
+            (alert.kind == .blockSoon || alert.kind == .blockStart) && alert.taskID == taskID
+        }
+        queuedAlerts.removeAll(where: isBlockAlert)
+        if queuedAlerts.isEmpty { overflow = 0 }
+        if state == .peek, let peek = peekAlert, isBlockAlert(peek) { hidePeek(after: .zero) }
     }
 
     func tapPeek(_ alert: NotchAlert) {
@@ -353,11 +378,17 @@ final class NotchInteraction {
         let command = event.modifierFlags.contains(.command)
         switch (Int(event.keyCode), command, event.charactersIgnoringModifiers ?? "") {
         case (53, _, _):
-            close()
+            if onEscape?() != true { close() }
         case (_, true, "1"):
             show(.workspace)
         case (_, true, "2"):
+            show(.day)
+        case (_, true, "3"):
             show(.insights)
+        case (123, false, _) where area == .day && event.modifierFlags.intersection([.shift, .option, .control]).isEmpty:
+            shiftDay(by: -1)
+        case (124, false, _) where area == .day && event.modifierFlags.intersection([.shift, .option, .control]).isEmpty:
+            shiftDay(by: 1)
         case (_, true, "n"):
             requestCapture()
         default:
@@ -372,11 +403,13 @@ enum LiveActivity: Equatable {
     /// A task focus ran out and waits for +5 min / break / done.
     case checkIn
     case event(AgendaEvent)
+    /// A planned time block is in progress and no focus is running.
+    case block(CurrentBlock)
 }
 
 extension NotchAlert {
     /// Peeks that carry action pills need more room.
     var hasActionRow: Bool {
-        kind == .taskCheckIn || (kind == .breakFinished && taskID != nil)
+        kind == .taskCheckIn || kind == .blockSoon || kind == .blockStart || (kind == .breakFinished && taskID != nil)
     }
 }

@@ -66,6 +66,12 @@ final class AgendaModel {
         ticker = timer
     }
 
+    /// Screenshots and demos: shows these events without asking for calendar access.
+    func useDemoEvents(_ demo: [AgendaEvent]) {
+        access = .granted
+        events = demo
+    }
+
     func reload() {
         load()
         tick()

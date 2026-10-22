@@ -94,6 +94,7 @@ struct ExpandedView: View {
         Group {
             switch notch.area {
             case .workspace: WorkspaceView()
+            case .day: DayView()
             case .insights: InsightsView()
             }
         }

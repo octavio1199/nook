@@ -46,6 +46,8 @@ struct PeekView: View {
             }
             if alert.kind == .taskCheckIn {
                 CheckInActions(style: .compact)
+            } else if alert.kind == .blockSoon || alert.kind == .blockStart {
+                BlockActions(alert: alert)
             } else if alert.kind == .breakFinished, alert.taskID != nil {
                 Button {
                     notch.dismissPeekNow()

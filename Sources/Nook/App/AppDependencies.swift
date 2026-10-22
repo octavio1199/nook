@@ -9,6 +9,7 @@ final class AppDependencies {
     let agenda = AgendaModel()
     let notch: NotchInteraction
     let dueWatcher: TaskDueWatcher
+    let blocks: BlockWatcher
     let workspace = WorkspaceState()
     let notifier: SystemNotifier
     /// The status item's menu; its tracking must not hold the open panel.
@@ -23,6 +24,9 @@ final class AppDependencies {
         dueWatcher = TaskDueWatcher(planner: planner)
         notifier = SystemNotifier(settings: settings, focus: focus, planner: planner, agenda: agenda, notch: notch)
         notifier.isEnabled = DemoMode.scene == nil
+        blocks = BlockWatcher(planner: planner, focus: focus, agenda: agenda, settings: settings)
+        blocks.isEnabled = DemoMode.scene == nil
+        notch.blocks = blocks
 
         let settings = settings
         focus.autoStartBreaks = { settings.autoStartBreaks }
@@ -35,12 +39,15 @@ final class AppDependencies {
         focus.onAlert = { [weak notch] in notch?.enqueue($0) }
         agenda.onAlert = { [weak notch] in notch?.enqueue($0) }
         dueWatcher.onAlert = { [weak notch] in notch?.enqueue($0) }
+        blocks.onAlert = { [weak notch] in notch?.enqueue($0) }
+        blocks.onResolved = { [weak notch] in notch?.withdrawBlockAlerts(for: $0) }
         notch.onFeedback = { [notifier] alert in
             notifier.post(alert)
             if settings.playsSounds { NSSound(named: "Glass")?.play() }
             if settings.haptics { NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now) }
         }
         observeDayChanges()
+        DayDemo.configureIfRequested(app: self)
     }
 
     /// Midnight rollover and wake from sleep (timers don't fire while asleep).
@@ -68,6 +75,7 @@ final class AppDependencies {
             .environment(focus)
             .environment(agenda)
             .environment(notch)
+            .environment(blocks)
             .environment(workspace)
             .environment(notifier)
             .environment(\.openSettings, OpenNookSettings { [weak self] in self?.openSettings() })

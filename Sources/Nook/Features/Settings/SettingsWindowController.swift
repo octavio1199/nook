@@ -64,12 +64,27 @@ private struct GeneralPage: View {
             }
             .pickerStyle(.segmented)
             Toggle("Show agenda in the workspace", isOn: $settings.showsAgenda)
+            Picker("Workday starts", selection: Binding(
+                get: { settings.workdayStart },
+                set: { settings.workdayStart = $0; if settings.workdayEnd <= $0 { settings.workdayEnd = min($0 + 60, 1440) } }
+            )) {
+                ForEach(Array(stride(from: 0, to: 1380, by: 30)), id: \.self) { Text(Self.clock($0)).tag($0) }
+            }
+            Picker("Workday ends", selection: $settings.workdayEnd) {
+                ForEach(Array(stride(from: settings.workdayStart + 30, through: 1440, by: 30)), id: \.self) { Text(Self.clock($0)).tag($0) }
+            }
+            Text("Plan my day only fills time inside your working hours.")
+                .font(.callout).foregroundStyle(.secondary)
             LabeledContent("Global hotkey") {
                 Text("⌥⌘N").font(.system(.body, design: .rounded)).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
         .onAppear { login.enabled = settings.launchAtLogin }
+    }
+
+    private static func clock(_ minutes: Int) -> String {
+        String(format: "%02d:%02d", minutes / 60, minutes % 60)
     }
 }
 

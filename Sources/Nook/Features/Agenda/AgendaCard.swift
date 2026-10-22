@@ -3,8 +3,26 @@ import SwiftUI
 
 struct AgendaCard: View {
     @Environment(AgendaModel.self) private var agenda
+    @Environment(PlannerStore.self) private var planner
 
     var body: some View {
+        let blocks = planner.scheduledTasks(on: Date())
+        if blocks.isEmpty {
+            agendaCard
+        } else {
+            Card("Up next", symbol: "clock") {
+                TimelineView(.periodic(from: .now, by: 30)) { context in
+                    UpNextList(
+                        items: UpNextItem.list(events: agenda.access == .granted ? agenda.today : [], blocks: blocks, now: context.date),
+                        now: context.date
+                    )
+                }
+            }
+            .frame(height: 150)
+        }
+    }
+
+    private var agendaCard: some View {
         Card("Agenda", symbol: "calendar") {
             switch agenda.access {
             case .unknown:
@@ -38,6 +56,86 @@ private struct Prompt: View {
                 .tint(Color.accent)
                 .controlSize(.small)
         }
+    }
+}
+
+/// Current time block plus the next three items (calendar events and task blocks) of the day.
+private struct UpNextList: View {
+    var items: [UpNextItem]
+    var now: Date
+
+    var body: some View {
+        if items.isEmpty {
+            Text("Nothing left on today's plan")
+                .font(Typography.caption).foregroundStyle(Color.textTertiary)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        } else {
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(items) { item in
+                        if let event = item.event {
+                            EventRow(event: event, now: now)
+                        } else if let task = item.task {
+                            BlockRow(task: task, start: item.start, end: item.end, now: now)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+}
+
+private struct BlockRow: View {
+    var task: TaskItem
+    var start: Date
+    var end: Date
+    var now: Date
+    @Environment(BlockWatcher.self) private var blocks
+    @Environment(FocusTimer.self) private var focus
+
+    private var isNow: Bool { start <= now && end > now }
+    private var progress: Double {
+        let total = end.timeIntervalSince(start)
+        return total > 0 ? min(max(now.timeIntervalSince(start) / total, 0), 1) : 0
+    }
+
+    var body: some View {
+        let tint = DayPalette.tint(task.priority)
+        let format = Date.FormatStyle.dateTime.hour().minute()
+        HStack(alignment: .top, spacing: 7) {
+            RoundedRectangle(cornerRadius: 1.5).fill(tint).frame(width: 3)
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(spacing: 4) {
+                    Text("\(start.formatted(format)) – \(end.formatted(format))").font(Typography.micro).foregroundStyle(Color.textSecondary)
+                    if isNow {
+                        Text("Now").font(.system(size: 9, weight: .bold))
+                            .padding(.horizontal, 5).padding(.vertical, 1)
+                            .background(Capsule().fill(Color.accent))
+                            .foregroundStyle(Color.black)
+                    }
+                }
+                Text(task.title).font(Typography.caption).foregroundStyle(Color.textPrimary).lineLimit(1)
+                if isNow {
+                    ProgressView(value: progress).progressViewStyle(.linear).tint(tint).controlSize(.mini).padding(.top, 2)
+                }
+            }
+            Spacer(minLength: 0)
+            if isNow, !(focus.isActive && focus.taskID == task.id) {
+                Button { blocks.startFocus(task.id) } label: {
+                    Text("Start").font(.system(size: 10, weight: .semibold))
+                        .padding(.horizontal, 8).padding(.vertical, 2)
+                        .background(Capsule().fill(Color.accent.opacity(0.9)))
+                        .foregroundStyle(Color.black)
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .help("Start a focus as long as this block")
+            }
+        }
+        .padding(.vertical, 2).padding(.horizontal, 4)
+        .background(RoundedRectangle(cornerRadius: 6).fill(isNow ? Color.surfaceRaised : .clear))
+        .fixedSize(horizontal: false, vertical: true)
     }
 }
 

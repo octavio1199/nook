@@ -50,6 +50,15 @@ struct LiveActivityWings: View {
         case .event(let event):
             Circle().fill(event.color).frame(width: 8, height: 8)
                 .padding(.leading, 3)
+        case .block(let block):
+            HStack(spacing: 6) {
+                Capsule().fill(block.priority == .none ? Color.accent : block.priority.tint).frame(width: 3, height: 12)
+                Text(block.title)
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(Color.white.opacity(0.9))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
         }
     }
 
@@ -93,6 +102,13 @@ struct LiveActivityWings: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
                 .contentTransition(.identity)
+        case .block(let block):
+            Text("until \(block.end.formatted(.dateTime.hour().minute()))")
+                .font(.system(size: 12, weight: .semibold))
+                .monospacedDigit()
+                .foregroundStyle(Color.white.opacity(0.85))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
         case .event(let event):
             TimelineView(.periodic(from: .now, by: 15)) { context in
                 let minutes = max(Int((event.start.timeIntervalSince(context.date) / 60).rounded(.up)), 0)

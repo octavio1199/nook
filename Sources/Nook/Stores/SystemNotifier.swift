@@ -28,8 +28,8 @@ enum NotificationPolicyLogic {
     /// Focus-related alerts may break through Focus modes (when the user allowed time-sensitive).
     static func isTimeSensitive(_ kind: NotchAlert.Kind) -> Bool {
         switch kind {
-        case .taskCheckIn, .focusFinished, .breakFinished, .focusPaused: true
-        case .eventSoon, .taskDue, .info: false
+        case .taskCheckIn, .focusFinished, .breakFinished, .focusPaused, .blockStart: true
+        case .eventSoon, .taskDue, .info, .blockSoon: false
         }
     }
 }
@@ -49,6 +49,8 @@ nonisolated enum NotificationID {
         case .focusPaused: "focusPaused"
         case .taskCheckIn: "taskCheckIn"
         case .info: "info"
+        case .blockSoon: "blockSoon"
+        case .blockStart: "blockStart"
         }
     }
 
@@ -71,7 +73,7 @@ nonisolated enum NotificationID {
         case .taskDue: hasTask ? "TASK_DUE" : nil
         case .eventSoon: hasJoinURL ? "EVENT_SOON_JOIN" : nil
         case .focusPaused: "FOCUS_PAUSED"
-        case .info: nil
+        case .info, .blockSoon, .blockStart: nil
         }
     }
 }
