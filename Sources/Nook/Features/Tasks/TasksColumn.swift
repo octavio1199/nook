@@ -11,6 +11,7 @@ struct TasksColumn: View {
 
     @LocalState private var scope: Scope = .today
     @LocalState private var draft = ""
+    @LocalState private var detailID: UUID?
     @FocusState private var captureFocused: Bool
     @Namespace private var switcherNamespace
 
@@ -32,11 +33,20 @@ struct TasksColumn: View {
         let counts: [Scope: Int] = [.today: today.count, .upcoming: upcoming.count, .done: done.count]
 
         return Card("Tasks", symbol: "checklist") {
-            VStack(alignment: .leading, spacing: 8) {
-                captureField(now: now)
-                switcher(counts: counts)
-                taskList(visible, now: now)
+            ZStack {
+                if let id = detailID, planner.task(id) != nil {
+                    TaskDetailView(taskID: id, now: now) { detailID = nil }
+                        .transition(.opacity.combined(with: .offset(x: 14)))
+                } else {
+                    VStack(alignment: .leading, spacing: 8) {
+                        captureField(now: now)
+                        switcher(counts: counts)
+                        taskList(visible, now: now)
+                    }
+                    .transition(.opacity.combined(with: .offset(x: -14)))
+                }
             }
+            .animation(Motion.navigate, value: detailID)
         }
         .onChange(of: notch.captureRequest) { captureFocused = true }
     }
@@ -130,7 +140,9 @@ struct TasksColumn: View {
             ScrollView(.vertical, showsIndicators: false) {
                 LazyVStack(spacing: 1) {
                     ForEach(tasks) { task in
-                        TaskRow(task: task, now: now, reorderable: scope == .today)
+                        TaskRow(task: task, now: now, reorderable: scope == .today) {
+                            detailID = task.id
+                        }
                             .transition(.asymmetric(
                                 insertion: .opacity.combined(with: .offset(y: -4)),
                                 removal: .opacity.combined(with: .scale(scale: 0.96))
@@ -227,9 +239,12 @@ private struct EmptyState: View {
 
 private struct TaskRow: View {
     @Environment(PlannerStore.self) private var planner
+    @Environment(FocusTimer.self) private var focus
+    @Environment(AppSettings.self) private var settings
     let task: TaskItem
     let now: Date
     let reorderable: Bool
+    let onOpen: () -> Void
 
     @LocalState private var hovering = false
     @LocalState private var editing = false
@@ -241,11 +256,32 @@ private struct TaskRow: View {
         HStack(alignment: .top, spacing: 8) {
             checkbox
             VStack(alignment: .leading, spacing: 3) {
-                titleView
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    titleView
+                    if hasNotes && !editing {
+                        Image(systemName: "note.text")
+                            .font(.system(size: 9))
+                            .foregroundStyle(Color.textTertiary)
+                    }
+                }
                 if hasChips { chips }
             }
             Spacer(minLength: 0)
             if hovering && !editing {
+                if !task.done && !isFocused {
+                    Button {
+                        withAnimation(Motion.navigate) { TaskActions.focus(on: task, timer: focus, settings: settings) }
+                    } label: {
+                        Image(systemName: "play.fill")
+                            .font(.system(size: 7, weight: .bold))
+                            .foregroundStyle(Color.focus)
+                            .frame(width: 16, height: 16)
+                            .background(Circle().fill(Color.focus.opacity(0.16)))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Focus on this")
+                    .transition(.opacity.combined(with: .scale(scale: 0.8)))
+                }
                 Button {
                     withAnimation(Motion.navigate) { planner.delete(task.id) }
                 } label: {
@@ -264,8 +300,15 @@ private struct TaskRow: View {
         .padding(.vertical, 5)
         .background(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(hovering ? Color.surface : .clear)
+                .fill(isFocused ? Color.focus.opacity(0.09) : (hovering ? Color.surface : .clear))
         )
+        .overlay(alignment: .leading) {
+            if isFocused {
+                Capsule().fill(Color.focus).frame(width: 2, height: 14).offset(x: -1)
+                    .transition(.opacity.combined(with: .scale(scale: 0.5)))
+            }
+        }
+        .animation(Motion.navigate, value: isFocused)
         .overlay(alignment: .top) {
             if dropTargeted { Capsule().fill(Color.accent).frame(height: 2).offset(y: -1) }
         }
@@ -275,6 +318,10 @@ private struct TaskRow: View {
         .contextMenu { menu }
         .modifier(ReorderModifier(enabled: reorderable, id: task.id, targeted: $dropTargeted, planner: planner))
     }
+
+    private var hasNotes: Bool { !(task.notes ?? "").isEmpty }
+
+    private var isFocused: Bool { focus.isActive && focus.taskID == task.id }
 
     private var hasChips: Bool {
         task.due != nil || task.priority != .none || !task.tags.isEmpty
@@ -322,7 +369,10 @@ private struct TaskRow: View {
                 .lineLimit(2)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
-                .onTapGesture(count: 2) { beginEdit() }
+                .gesture(
+                    TapGesture(count: 2).onEnded { beginEdit() }
+                        .exclusively(before: TapGesture().onEnded { onOpen() })
+                )
         }
     }
 
@@ -353,17 +403,19 @@ private struct TaskRow: View {
     private func commitEdit() {
         guard editing else { return }
         editing = false
-        let title = editText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !title.isEmpty, title != task.title else { return }
-        var updated = task
-        updated.title = title
-        planner.update(updated)
+        TaskActions.rename(task, to: editText, planner: planner, focus: focus)
     }
 
     // MARK: Menu
 
     @ViewBuilder
     private var menu: some View {
+        if !task.done {
+            Button("Focus on this") { TaskActions.focus(on: task, timer: focus, settings: settings) }
+            Divider()
+        }
+        Button("Open Details") { onOpen() }
+        Divider()
         Button("Move to Today") { reschedule(.today) }
         Button("Move to Tomorrow") { reschedule(.tomorrow) }
         Button("Move to Next Week") { reschedule(.nextWeek) }
@@ -372,9 +424,7 @@ private struct TaskRow: View {
         Menu("Priority") {
             ForEach(TaskItem.Priority.allCases.reversed(), id: \.self) { p in
                 Button {
-                    var updated = task
-                    updated.priority = p
-                    planner.update(updated)
+                    TaskActions.setPriority(task, p, in: planner)
                 } label: {
                     if task.priority == p { Label(p.title, systemImage: "checkmark") } else { Text(p.title) }
                 }
@@ -384,20 +434,8 @@ private struct TaskRow: View {
         Button("Delete", role: .destructive) { withAnimation(Motion.navigate) { planner.delete(task.id) } }
     }
 
-    private enum Target { case today, tomorrow, nextWeek, none }
-
-    private func reschedule(_ target: Target) {
-        let cal = Calendar.current
-        let start = cal.startOfDay(for: Date())
-        var updated = task
-        updated.hasTime = false
-        switch target {
-        case .today: updated.due = start
-        case .tomorrow: updated.due = cal.date(byAdding: .day, value: 1, to: start)
-        case .nextWeek: updated.due = cal.date(byAdding: .day, value: 7, to: start)
-        case .none: updated.due = nil
-        }
-        withAnimation(Motion.navigate) { planner.update(updated) }
+    private func reschedule(_ target: TaskActions.Reschedule) {
+        TaskActions.reschedule(task, to: target, in: planner)
     }
 }
 

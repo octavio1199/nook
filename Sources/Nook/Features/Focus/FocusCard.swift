@@ -3,7 +3,7 @@ import SwiftUI
 struct FocusCard: View {
     @Environment(FocusTimer.self) private var focus
     @Environment(AppSettings.self) private var settings
-    @StateObject private var draft = Draft()
+    @Environment(PlannerStore.self) private var planner
 
     var body: some View {
         Card("Focus", symbol: "timer", trailing: focus.isActive ? AnyView(statusDot) : nil) {
@@ -31,9 +31,9 @@ struct FocusCard: View {
 
     // MARK: Idle
 
-    private var trimmedLabel: String? {
-        let text = draft.label.trimmingCharacters(in: .whitespaces)
-        return text.isEmpty ? nil : text
+    /// The picked task, unless it has been completed or deleted since.
+    private var selectedTask: TaskItem? {
+        planner.task(focus.taskID).flatMap { $0.done ? nil : $0 }
     }
 
     private var selectedPreset: FocusPreset { .with(id: settings.focusPresetID) }
@@ -43,21 +43,28 @@ struct FocusCard: View {
             presetPicker
             HStack(spacing: 5) {
                 ForEach([5, 10, 30], id: \.self) { minutes in
-                    SmallChip(title: "\(minutes)m") { focus.startCountdown(minutes: minutes, label: trimmedLabel) }
+                    SmallChip(title: "\(minutes)m") {
+                        focus.startCountdown(minutes: minutes, label: selectedTask?.title, taskID: selectedTask?.id)
+                    }
                 }
-                SmallChip(symbol: "stopwatch") { focus.startStopwatch(label: trimmedLabel) }
+                SmallChip(symbol: "stopwatch") { focus.startStopwatch(label: selectedTask?.title, taskID: selectedTask?.id) }
                     .help("Stopwatch")
             }
-            TextField("What are you focusing on?", text: $draft.label)
-                .textFieldStyle(.plain)
-                .font(Typography.caption)
-                .foregroundStyle(Color.textPrimary)
+            TaskPicker(selected: selectedTask, tasks: planner.todayTasks()) { focus.focus(on: $0) } label: { title in
+                HStack(spacing: 5) {
+                    Image(systemName: "scope").font(.system(size: 9, weight: .semibold))
+                    Text(title ?? "Focus on…").font(Typography.caption).lineLimit(1)
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.up.chevron.down").font(.system(size: 8, weight: .semibold))
+                }
+                .foregroundStyle(title == nil ? Color.textSecondary : Color.textPrimary)
                 .padding(.horizontal, 8)
                 .frame(height: 24)
                 .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.surface))
-                .onSubmit { focus.startPomodoro(selectedPreset, label: trimmedLabel) }
+                .contentShape(Rectangle())
+            }
             Button {
-                focus.startPomodoro(selectedPreset, label: trimmedLabel)
+                focus.startPomodoro(selectedPreset, label: selectedTask?.title, taskID: selectedTask?.id)
             } label: {
                 Label("Start", systemImage: "play.fill")
                     .font(Typography.title)
@@ -105,6 +112,7 @@ struct FocusCard: View {
 
 private struct ActiveFocusView: View {
     @Environment(FocusTimer.self) private var focus
+    @Environment(PlannerStore.self) private var planner
 
     var body: some View {
         let tint = focus.phase?.tint ?? .focus
@@ -120,6 +128,9 @@ private struct ActiveFocusView: View {
                             .font(Typography.caption)
                             .foregroundStyle(Color.textSecondary)
                             .lineLimit(2)
+                        changeMenu(title: "change")
+                    } else if focus.phase?.isBreak == false {
+                        changeMenu(title: "Choose a task")
                     } else if focus.isPaused {
                         Text("Paused").font(Typography.caption).foregroundStyle(Color.textSecondary)
                     }
@@ -132,6 +143,17 @@ private struct ActiveFocusView: View {
                 .frame(height: 80)
             }
             controls(tint: tint)
+        }
+    }
+
+    private func changeMenu(title: String) -> some View {
+        TaskPicker(selected: planner.task(focus.taskID), tasks: planner.todayTasks()) { focus.focus(on: $0) } label: { _ in
+            HStack(spacing: 3) {
+                Text(title).font(Typography.micro)
+                Image(systemName: "chevron.down").font(.system(size: 7, weight: .bold))
+            }
+            .foregroundStyle(Color.accent)
+            .contentShape(Rectangle())
         }
     }
 
@@ -205,8 +227,31 @@ private struct ActiveFocusView: View {
 
 // MARK: - Components
 
-private final class Draft: ObservableObject {
-    @Published var label = ""
+/// Menu of today's open tasks plus "No task". `label` receives the selected title.
+private struct TaskPicker<Content: View>: View {
+    var selected: TaskItem?
+    var tasks: [TaskItem]
+    var choose: (TaskItem?) -> Void
+    @ViewBuilder var label: (String?) -> Content
+
+    var body: some View {
+        Menu {
+            Button { choose(nil) } label: {
+                if selected == nil { Label("No task", systemImage: "checkmark") } else { Text("No task") }
+            }
+            if !tasks.isEmpty { Divider() }
+            ForEach(tasks) { task in
+                Button { choose(task) } label: {
+                    if selected?.id == task.id { Label(task.title, systemImage: "checkmark") } else { Text(task.title) }
+                }
+            }
+        } label: {
+            label(selected?.title)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .buttonStyle(.plain)
+    }
 }
 
 private final class HoverState: ObservableObject {

@@ -8,22 +8,20 @@ struct NotesColumn: View {
     @LocalState private var loaded = false
     @LocalState private var sentCount = 0
     @LocalState private var flashTask: Task<Void, Never>?
+    @LocalState private var showHints = false
+    @AppStorage("notesWrapLines") private var wrapLines = true
 
     private var isToday: Bool { Calendar.current.isDateInToday(day) }
 
     var body: some View {
-        Card("Notepad", symbol: "note.text", trailing: AnyView(dayPicker)) {
+        Card("Notepad", symbol: "note.text", trailing: AnyView(toolbar)) {
             VStack(alignment: .leading, spacing: 6) {
-                ZStack(alignment: .topLeading) {
-                    NoteTextView(text: $text, onSendLine: sendLine)
-                    if text.isEmpty {
-                        Text(isToday ? "Jot something down…" : "Nothing written this day.")
-                            .font(Typography.body)
-                            .foregroundStyle(Color.textTertiary)
-                            .padding(.top, 2)
-                            .allowsHitTesting(false)
-                    }
-                }
+                MarkdownEditor(
+                    text: $text,
+                    placeholder: isToday ? "Jot something down…" : "Nothing written this day.",
+                    onCommandReturn: sendLine,
+                    wrapsLines: wrapLines
+                )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 footer
@@ -32,9 +30,68 @@ struct NotesColumn: View {
         .onAppear(perform: load)
         .onChange(of: text) { save() }
         .onChange(of: day) { load() }
+        .onReceive(NotificationCenter.default.publisher(for: .nookShowNotesDay)) { note in
+            guard let key = note.object as? String, let date = DayKey.date(from: key) else { return }
+            save()
+            day = Calendar.current.startOfDay(for: date)
+        }
     }
 
     // MARK: - Header
+
+    private var toolbar: some View {
+        HStack(spacing: 4) {
+            toolButton("text.word.spacing", help: wrapLines ? "Line wrap: on" : "Line wrap: off", active: wrapLines) { wrapLines.toggle() }
+            Button { showHints.toggle() } label: {
+                Text("Aa")
+                    .font(.system(size: 9.5, weight: .bold))
+                    .foregroundStyle(showHints ? Color.accent : Color.textSecondary)
+                    .frame(width: 20, height: 18)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Markdown shortcuts")
+            .popover(isPresented: $showHints, arrowEdge: .bottom) { hints }
+            dayPicker
+        }
+    }
+
+    private func toolButton(_ symbol: String, help: String, active: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 9.5, weight: .semibold))
+                .foregroundStyle(active ? Color.accent : Color.textSecondary)
+                .frame(width: 20, height: 18)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
+    }
+
+    private var hints: some View {
+        let rows: [(String, String)] = [
+            ("# · ## · ###", "Headings"),
+            ("**bold**  *italic*  ~~strike~~", "Inline styles"),
+            ("`code`  ```block```", "Code"),
+            ("- item · 1. item", "Lists (Enter continues)"),
+            ("- [ ] task", "Checkbox (click to toggle)"),
+            ("> quote", "Quote"),
+            ("[text](https://…)", "Links"),
+            ("Tab · ⇧Tab", "Indent / outdent list"),
+            ("⌘↩", "Line → task"),
+        ]
+        return VStack(alignment: .leading, spacing: 5) {
+            ForEach(rows.indices, id: \.self) { i in
+                HStack(spacing: 10) {
+                    Text(rows[i].0).font(.system(size: 10.5, design: .monospaced)).foregroundStyle(Color.accent)
+                    Spacer(minLength: 8)
+                    Text(rows[i].1).font(Typography.caption).foregroundStyle(Color.textSecondary)
+                }
+            }
+        }
+        .padding(12)
+        .frame(width: 290)
+    }
 
     private var dayPicker: some View {
         HStack(spacing: 2) {
@@ -45,7 +102,7 @@ struct NotesColumn: View {
                 Text(dayLabel)
                     .font(Typography.micro)
                     .foregroundStyle(isToday ? Color.textSecondary : Color.accent)
-                    .frame(minWidth: 56)
+                    .frame(minWidth: 40)
                     .contentTransition(.numericText())
             }
             .buttonStyle(.plain)
@@ -114,8 +171,10 @@ struct NotesColumn: View {
     // MARK: - ⌘↩
 
     private func sendLine(_ line: String) -> Bool {
-        let tasks = CaptureParser.parse(line)
+        var tasks = CaptureParser.parse(MarkdownStyler.plainContent(of: line))
         guard !tasks.isEmpty else { return false }
+        let source = DayKey.string(for: day)
+        for index in tasks.indices { tasks[index].sourceDay = source }
         withAnimation(Motion.navigate) { planner.add(tasks) }
         sentCount = tasks.count
         flashTask?.cancel()

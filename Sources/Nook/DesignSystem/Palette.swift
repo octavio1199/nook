@@ -37,7 +37,7 @@ struct Card<Content: View>: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
                 Image(systemName: symbol).font(Typography.micro).foregroundStyle(Color.textSecondary)
-                Text(title.uppercased()).font(Typography.micro).tracking(0.8).foregroundStyle(Color.textSecondary)
+                Text(title.uppercased()).font(Typography.micro).tracking(0.8).lineLimit(1).fixedSize().foregroundStyle(Color.textSecondary)
                 Spacer(minLength: 0)
                 if let trailing { trailing }
             }

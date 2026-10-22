@@ -6,6 +6,7 @@ struct PeekView: View {
 
     @Environment(FocusTimer.self) private var focus
     @Environment(AppSettings.self) private var settings
+    @Environment(PlannerStore.self) private var planner
 
     var body: some View {
         HStack(spacing: 10) {
@@ -27,6 +28,21 @@ struct PeekView: View {
                 }
             }
             Spacer(minLength: 8)
+            if let task = finishedTask {
+                Button {
+                    withAnimation(Motion.navigate) { planner.toggle(task.id) }
+                } label: {
+                    Text("Mark done")
+                        .font(Typography.caption)
+                        .foregroundStyle(alert.tint)
+                        .padding(.horizontal, 10)
+                        .frame(height: 26)
+                        .background(Capsule().fill(alert.tint.opacity(0.18)))
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .transition(.opacity.combined(with: .scale(scale: 0.9)))
+            }
             if let action {
                 Button(action: action.run) {
                     Text(action.title)
@@ -50,6 +66,12 @@ struct PeekView: View {
     private struct PillAction {
         var title: String
         var run: () -> Void
+    }
+
+    /// The open task the just-finished focus was logged against.
+    private var finishedTask: TaskItem? {
+        guard alert.kind == .focusFinished, let task = planner.task(focus.taskID), !task.done else { return nil }
+        return task
     }
 
     private var preset: FocusPreset { .with(id: settings.focusPresetID) }

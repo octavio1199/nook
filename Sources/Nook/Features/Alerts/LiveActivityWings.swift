@@ -6,16 +6,17 @@ struct LiveActivityWings: View {
     let height: CGFloat
 
     @Environment(FocusTimer.self) private var focus
+    @Environment(NotchInteraction.self) private var notch
 
     var body: some View {
         HStack(spacing: 0) {
             leftWing
                 .padding(.leading, 16)
-                .frame(width: NotchLayout.wingWidth, height: height, alignment: .leading)
+                .frame(width: notch.wingWidth, height: height, alignment: .leading)
             Color.clear.frame(width: notchWidth, height: height)
             rightWing
                 .padding(.trailing, 14)
-                .frame(width: NotchLayout.wingWidth, height: height, alignment: .trailing)
+                .frame(width: notch.wingWidth, height: height, alignment: .trailing)
         }
         .frame(height: height)
     }
@@ -25,6 +26,25 @@ struct LiveActivityWings: View {
         case .focus:
             let tint = focus.phase?.tint ?? .focus
             let stopwatch = focus.phase == .stopwatch
+            HStack(spacing: 7) {
+                ring(tint: tint, stopwatch: stopwatch)
+                if let label = focus.label, !label.isEmpty {
+                    Text(label)
+                        .font(.system(size: 11.5, weight: .medium))
+                        .foregroundStyle(Color.white.opacity(focus.isPaused ? 0.5 : 0.85))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .transition(.opacity)
+                }
+            }
+            .animation(Motion.fade, value: focus.label)
+        case .event(let event):
+            Circle().fill(event.color).frame(width: 8, height: 8)
+                .padding(.leading, 3)
+        }
+    }
+
+    private func ring(tint: Color, stopwatch: Bool) -> some View {
             ZStack {
                 Circle().stroke(tint.opacity(0.22), lineWidth: 2)
                 Circle()
@@ -44,10 +64,6 @@ struct LiveActivityWings: View {
             }
             .frame(width: 14, height: 14)
             .animation(Motion.fade, value: focus.isPaused)
-        case .event(let event):
-            Circle().fill(event.color).frame(width: 8, height: 8)
-                .padding(.leading, 3)
-        }
     }
 
     @ViewBuilder private var rightWing: some View {

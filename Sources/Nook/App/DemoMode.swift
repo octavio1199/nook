@@ -18,7 +18,7 @@ enum DemoMode {
         var done = TaskItem(title: "Ship v0.1", done: true)
         done.completedAt = now
         store.add(done)
-        store.setNote("Ideas for Nook\n- drag files onto the notch\n- Reminders sync\nAsk Jordan about the peek animation", for: now)
+        store.setNote("# Ideas for Nook\n- [x] **Markdown** notepad\n- [ ] drag files onto the notch\n- [ ] Reminders sync\n> ship `v0.2` this week\nSee https://github.com/octavio1199/nook", for: now)
         for day in 0..<7 {
             guard let date = cal.date(byAdding: .day, value: -day, to: now) else { continue }
             store.log(FocusSession(start: date, duration: TimeInterval((25 * (1 + day % 3)) * 60)))

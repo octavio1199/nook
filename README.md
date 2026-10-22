@@ -46,10 +46,11 @@ Ou, em uma linha: `curl -fsSL https://raw.githubusercontent.com/octavio1199/nook
 ## Features
 
 - **Fast capture** with a local parser (no cloud AI): `call Ana tomorrow 3pm !high #work` becomes a task with date, time, priority and tag. Separate items with `;` or line breaks to brain-dump several at once.
-- **Tasks**: Today / Upcoming / Done, priorities, tags, due chips.
-- **Notepad**: daily autosaving notes; ⌘↩ on a line turns it into a task.
+- **Tasks**: Today / Upcoming / Done, priorities, tags, due chips. Click a task for its details and its own markdown notes.
+- **Markdown notepad**: daily autosaving notes with live markdown (headings, bold, code, lists, clickable checkboxes, links), line wrap, list continuation. ⌘↩ on a line turns it into a task linked back to that day.
+- **Focus on a task**: pick a task (▶ on hover or "Focus on…"); its title shows on the left of the notch and the timer on the right. Focus time adds up per task.
 - **Focus timer**: Pomodoro presets (25/5, 50/10, 15/3), countdown, stopwatch.
-- **Live activity**: the notch grows wings with a ring and countdown during focus, and warns before events.
+- **Live activity**: the notch grows wings with a ring, the task and a countdown during focus, and warns before events.
 - **Agenda**: today's and tomorrow's events from Calendar (read-only, permission asked lazily).
 - **Insights**: tasks done, focus minutes, streak, 7-day chart, best day, most focused hour.
 - Liquid Glass (macOS 26+) or solid panel. Universal binary, macOS 14+.
@@ -73,7 +74,7 @@ Requires macOS 14+ and Swift 6.2 (Command Line Tools are enough, no Xcode needed
 
 ```bash
 swift build          # debug build
-swift test           # run tests
+scripts/test.sh      # run tests
 scripts/bundle.sh    # build/Nook.app (universal, ad-hoc signed)
 scripts/make-dmg.sh  # build/Nook.dmg with a drag-to-Applications window
 scripts/run.sh       # bundle and open
