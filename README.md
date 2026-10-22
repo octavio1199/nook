@@ -15,6 +15,8 @@ A free, open-source **notch planner for macOS**. Hover the notch (or press ⌥�
 
 Requires macOS 14 or later (Apple silicon or Intel).
 
+<p><a href="https://github.com/octavio1199/nook/releases/latest/download/Nook.dmg"><img src="https://img.shields.io/badge/Download_Nook.dmg-000000?style=for-the-badge&logo=apple&logoColor=white" alt="Download Nook.dmg"></a></p>
+
 **One line** (downloads the latest release into `/Applications` and opens it):
 
 ```bash
@@ -23,8 +25,8 @@ curl -fsSL https://raw.githubusercontent.com/octavio1199/nook/main/scripts/insta
 
 **Manually**
 
-1. Download `Nook.zip` from the [latest release](https://github.com/octavio1199/nook/releases/latest) and unzip it.
-2. Drag `Nook.app` to Applications.
+1. Download [`Nook.dmg`](https://github.com/octavio1199/nook/releases/latest/download/Nook.dmg) and open it.
+2. Drag `Nook` to Applications.
 3. Nook is ad-hoc signed, not notarized by Apple, so macOS blocks the first launch. Either run
    `xattr -dr com.apple.quarantine /Applications/Nook.app`, or open it once and go to
    **System Settings → Privacy & Security → Open Anyway**.
@@ -34,7 +36,7 @@ To uninstall, quit Nook from its menu bar icon and delete `/Applications/Nook.ap
 
 ### Português
 
-1. Baixe o `Nook.zip` na [última release](https://github.com/octavio1199/nook/releases/latest), descompacte e arraste o `Nook.app` para Aplicativos.
+1. Baixe o [`Nook.dmg`](https://github.com/octavio1199/nook/releases/latest/download/Nook.dmg), abra e arraste o `Nook` para Aplicativos.
 2. Como o app não é notarizado pela Apple, libere a primeira abertura com
    `xattr -dr com.apple.quarantine /Applications/Nook.app` (ou em Ajustes → Privacidade e Segurança → Abrir Mesmo Assim).
 3. Passe o mouse no notch ou use **⌥⌘N**.
@@ -73,6 +75,7 @@ Requires macOS 14+ and Swift 6.2 (Command Line Tools are enough, no Xcode needed
 swift build          # debug build
 swift test           # run tests
 scripts/bundle.sh    # build/Nook.app (universal, ad-hoc signed)
+scripts/make-dmg.sh  # build/Nook.dmg with a drag-to-Applications window
 scripts/run.sh       # bundle and open
 open build/Nook.app --args --demo open   # sample data, nothing saved
 ```
