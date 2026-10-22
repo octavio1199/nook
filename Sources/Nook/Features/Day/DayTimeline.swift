@@ -45,23 +45,16 @@ struct DayTimeline: View {
         return result
     }
 
-    /// Visible hours: the working hours plus one hour each side, stretched to cover anything outside them.
-    private func hourRange(_ entries: [Entry]) -> Range<Int> {
-        var first = max(dayPlanner.workStart / 60 - 1, 0)
-        var last = min((dayPlanner.workEnd + 59) / 60 + 1, 24)
-        let all = entries.map { ($0.start, $0.end) } + preview.map { ($0.start, $0.end) }
-        for (start, end) in all {
-            first = min(first, Int(start.timeIntervalSince(dayStart) / 3600))
-            last = max(last, min(Int((end.timeIntervalSince(dayStart) / 3600).rounded(.up)), 24))
-        }
-        return max(first, 0)..<max(last, first + 1)
-    }
+    /// The whole day: blocks can go at any hour. Working hours only guide "Plan my day"
+    /// (and get a lighter band).
+    static let hours = 0..<24
 
     var body: some View {
         let entries = entries
-        let range = hourRange(entries)
+        let range = Self.hours
         let geometry = Geometry(dayStart: dayStart, firstHour: range.lowerBound, hourHeight: Self.hourHeight)
-        let total = CGFloat(range.count) * Self.hourHeight + 6
+        // Room below the last hour for the closing "24:00" line and its label.
+        let total = CGFloat(range.count) * Self.hourHeight + Self.labelInset
         let spans = entries.map { DayPlanner.Span(id: $0.id, start: $0.start, end: $0.end) }
         let columns = DayPlanner.columns(for: spans)
         let overlapping = DayPlanner.overlapping(spans)
@@ -142,17 +135,22 @@ struct DayTimeline: View {
                 .offset(x: Self.gutter, y: (workFirst - CGFloat(range.lowerBound)) * Self.hourHeight)
             VStack(spacing: 0) {
                 ForEach(Array(range), id: \.self) { hour in
-                    HStack(alignment: .top, spacing: 4) {
-                        Text(String(format: "%02d:00", hour))
-                            .font(.system(size: 9.5, weight: .medium).monospacedDigit())
-                            .foregroundStyle(Color.textTertiary)
-                            .frame(width: Self.gutter - 4, alignment: .trailing)
-                            .offset(y: -6)
-                        Rectangle().fill(Color.hairline).frame(height: 1)
-                    }
-                    .frame(height: Self.hourHeight, alignment: .top)
+                    hourLine(hour)
+                        .frame(height: Self.hourHeight, alignment: .top)
                 }
+                hourLine(range.upperBound)
             }
+        }
+    }
+
+    private func hourLine(_ hour: Int) -> some View {
+        HStack(alignment: .top, spacing: 4) {
+            Text(String(format: "%02d:00", hour))
+                .font(.system(size: 9.5, weight: .medium).monospacedDigit())
+                .foregroundStyle(Color.textTertiary)
+                .frame(width: Self.gutter - 4, alignment: .trailing)
+                .offset(y: -6)
+            Rectangle().fill(Color.hairline).frame(height: 1)
         }
     }
 
@@ -160,7 +158,9 @@ struct DayTimeline: View {
     /// as a fraction of the scrollable distance (`defaultScrollAnchor` aligns the same point of both).
     private func scrollAnchor(range: Range<Int>, content: CGFloat, viewport: CGFloat) -> UnitPoint {
         let hour: Int
-        if calendar.isDate(now, inSameDayAs: dayStart), !DayDemo.showsMorning {
+        if let demo = DayDemo.scrollHour {
+            hour = demo
+        } else if calendar.isDate(now, inSameDayAs: dayStart), !DayDemo.showsMorning {
             hour = calendar.component(.hour, from: now) - 1
         } else {
             hour = dayPlanner.workStart / 60 - 1

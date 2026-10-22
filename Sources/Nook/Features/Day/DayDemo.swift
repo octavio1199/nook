@@ -15,6 +15,8 @@ enum DayDemo {
     /// Screenshots of the day scene start at the top of the workday whatever the real time is
     /// (the plan scene scrolls to now, where its preview lands).
     static var showsMorning: Bool { mode == "day" }
+    /// The night scene opens late in the evening to show blocks outside working hours.
+    static var scrollHour: Int? { mode == "night" ? 18 : nil }
 
     static func configureIfRequested(app: AppDependencies) {
         guard let mode else { return }
@@ -50,6 +52,10 @@ enum DayDemo {
                 schedule("Review Pullo PR", at(11), minutes: 45)
                 schedule("Design review", at(14), minutes: 45)
             }
+            app.notch.show(.day)
+        case "night":
+            schedule("Draft launch post", at(21, 30), minutes: 60)
+            schedule("Review Pullo PR", at(23), minutes: 45)
             app.notch.show(.day)
         case "wings":
             schedule("Draft launch post", floorNow.addingTimeInterval(-quarter), minutes: 60)
