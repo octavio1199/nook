@@ -120,22 +120,59 @@ struct CaptureParserTests {
         #expect(one("Gym on mon").due == date(20))
         #expect(one("Gym next monday").due == date(20))
         #expect(one("Gym Thursday").due == date(16))
-        // Same weekday -> next week.
-        #expect(one("Review wed").due == date(22))
-        #expect(one("Review wed").title == "Review")
-        #expect(one("Hike sun").due == date(19))
+        // Same weekday -> today when there is no time or the time is still ahead.
+        #expect(one("Review wednesday").due == date(15))
+        #expect(one("Review on wed").title == "Review")
+        #expect(one("Review on wednesday 3pm").due == date(15, 15))
+        #expect(one("Review on wednesday 9am").due == date(22, 9))
+        #expect(one("Review next wednesday").due == date(22))
+        #expect(one("Hike on sun").due == date(19))
         #expect(one("Hike saturday").due == date(18))
     }
 
     @Test func weekdaysPortuguese() {
-        #expect(one("Reunião seg").due == date(20))
+        #expect(one("Reunião na seg").due == date(20))
         #expect(one("Reunião na sexta").due == date(17))
         #expect(one("Reunião na sexta").title == "Reunião")
         #expect(one("Dentista terça-feira").due == date(21))
         #expect(one("Dentista quinta").due == date(16))
         #expect(one("Churrasco sábado").due == date(18))
         #expect(one("Almoço domingo").due == date(19))
-        #expect(one("Aula qua").due == date(22))
+        #expect(one("Aula na qua").due == date(15))
+    }
+
+    @Test func bareShortWeekdaysStayInTitles() {
+        let sun = one("buy sun cream")
+        #expect(sun.due == nil)
+        #expect(sun.title == "buy sun cream")
+        let dom = one("dom casmurro")
+        #expect(dom.due == nil)
+        #expect(dom.title == "dom casmurro")
+        #expect(one("ler sex and the city").due == nil)
+        #expect(one("revisar seg").due == nil)
+    }
+
+    @Test func shortWeekdayAfterPreposition() {
+        #expect(one("Gym on fri").due == date(17))
+        #expect(one("Gym on fri").title == "Gym")
+        #expect(one("Aula dia seg").due == date(20))
+        #expect(one("Gym next mon").due == date(20))
+    }
+
+    @Test func sextaFeiraWithTime() {
+        let t = one("Dentista sexta-feira 15h")
+        #expect(t.due == date(17, 15))
+        #expect(t.hasTime)
+    }
+
+    @Test func sameWeekdayOnFriday() {
+        let friday = date(17, 10)
+        let timedLater = CaptureParser.parse("report on friday 3pm", now: friday, calendar: Self.calendar)
+        #expect(timedLater.first?.due == date(17, 15))
+        let past = CaptureParser.parse("report on friday 9am", now: friday, calendar: Self.calendar)
+        #expect(past.first?.due == date(24, 9))
+        let none = CaptureParser.parse("report on friday", now: friday, calendar: Self.calendar)
+        #expect(none.first?.due == date(17))
     }
 
     @Test func portugueseTer() {

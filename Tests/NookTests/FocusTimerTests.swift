@@ -132,4 +132,53 @@ import Testing
         #expect(rec.alerts.isEmpty)
         timer.stop()
     }
+
+    @Test func skippingFocusEarlyDoesNotCountTowardCycle() {
+        let (timer, _) = makeTimer()
+        timer.startPomodoro(FocusPreset(id: "t", name: "T", focus: 10, shortBreak: 2, longBreak: 3, sessionsBeforeLongBreak: 1))
+        timer.tick(at: timer.now.addingTimeInterval(120)) // 20% done
+        timer.skip()
+        #expect(timer.completedInCycle == 0)
+        #expect(timer.phase == .shortBreak) // not a long break despite sessionsBeforeLongBreak == 1
+    }
+
+    @Test func skippingFocusPastHalfCounts() {
+        let (timer, _) = makeTimer()
+        timer.startPomodoro(FocusPreset(id: "t", name: "T", focus: 10, shortBreak: 2, longBreak: 3, sessionsBeforeLongBreak: 4))
+        timer.tick(at: timer.now.addingTimeInterval(301))
+        timer.skip()
+        #expect(timer.completedInCycle == 1)
+    }
+
+    @Test func systemPauseThenWakeAlertsOnce() {
+        let (timer, rec) = makeTimer()
+        timer.startCountdown(minutes: 5, label: "Write")
+        timer.systemPause()
+        #expect(timer.isPaused)
+        timer.systemWake()
+        #expect(rec.alerts.map(\.kind) == [.focusPaused])
+        timer.systemWake()
+        #expect(rec.alerts.count == 1)
+        timer.stop()
+    }
+
+    @Test func userPauseIsNotAnnouncedOnWake() {
+        let (timer, rec) = makeTimer()
+        timer.startCountdown(minutes: 5)
+        timer.pause()
+        timer.systemPause() // already paused by the user: nothing to take over
+        timer.systemWake()
+        #expect(rec.alerts.isEmpty)
+        timer.stop()
+    }
+
+    @Test func resumingBeforeWakeSuppressesAlert() {
+        let (timer, rec) = makeTimer()
+        timer.startCountdown(minutes: 5)
+        timer.systemPause()
+        timer.resume()
+        timer.systemWake()
+        #expect(rec.alerts.isEmpty)
+        timer.stop()
+    }
 }

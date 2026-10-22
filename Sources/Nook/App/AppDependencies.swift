@@ -9,6 +9,10 @@ final class AppDependencies {
     let agenda = AgendaModel()
     let notch: NotchInteraction
     let dueWatcher: TaskDueWatcher
+    let workspace = WorkspaceState()
+    /// The status item's menu; its tracking must not hold the open panel.
+    weak var statusMenu: NSMenu?
+    private var dayObservers: [NSObjectProtocol] = []
     lazy var settingsWindow = SettingsWindowController(app: self)
 
     init(planner: PlannerStore = PlannerStore()) {
@@ -29,6 +33,25 @@ final class AppDependencies {
             if settings.playsSounds { NSSound(named: "Glass")?.play() }
             if settings.haptics { NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now) }
         }
+        observeDayChanges()
+    }
+
+    /// Midnight rollover and wake from sleep (timers don't fire while asleep).
+    private func observeDayChanges() {
+        let refresh: @Sendable (Notification) -> Void = { [weak self] _ in
+            MainActor.assumeIsolated { self?.dayMayHaveChanged() }
+        }
+        dayObservers = [
+            NotificationCenter.default.addObserver(forName: .NSCalendarDayChanged, object: nil, queue: .main, using: refresh),
+            NotificationCenter.default.addObserver(forName: NSNotification.Name.NSSystemTimeZoneDidChange, object: nil, queue: .main, using: refresh),
+            NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main, using: refresh),
+        ]
+    }
+
+    func dayMayHaveChanged() {
+        // Notepad edits are written to the store on every keystroke; flush before the notepad switches day.
+        planner.saveNow()
+        workspace.refreshToday()
     }
 
     func inject(into view: some View) -> some View {
@@ -38,6 +61,7 @@ final class AppDependencies {
             .environment(focus)
             .environment(agenda)
             .environment(notch)
+            .environment(workspace)
             .environment(\.openSettings, OpenNookSettings { [weak self] in self?.openSettings() })
     }
 

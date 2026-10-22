@@ -2,7 +2,7 @@ import SwiftUI
 
 struct NotchAlert: Identifiable, Equatable {
     enum Kind: Equatable {
-        case focusFinished, breakFinished, eventSoon, taskDue, info
+        case focusFinished, breakFinished, eventSoon, taskDue, focusPaused, info
     }
 
     var id = UUID()

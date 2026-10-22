@@ -14,9 +14,11 @@ final class AgendaModel {
     @ObservationIgnored var alertMinutes: () -> Int = { 5 }
 
     @ObservationIgnored private let store = EKEventStore()
-    @ObservationIgnored private var alerted: Set<String> = []
+    /// Occurrence key -> occurrence start. Keyed per occurrence so a recurring event alerts every time.
+    @ObservationIgnored private var alerted: [String: Date] = [:]
     @ObservationIgnored private var ticker: Timer?
-    @ObservationIgnored private var changeObserver: Any?
+    @ObservationIgnored private var observers: [(center: NotificationCenter, token: Any)] = []
+    @ObservationIgnored private var loadedDay = Date()
 
     init() {
         access = Self.currentAccess
@@ -48,9 +50,15 @@ final class AgendaModel {
 
     private func start() {
         reload()
-        changeObserver = NotificationCenter.default.addObserver(forName: .EKEventStoreChanged, object: store, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.reload() }
+        func observe(_ center: NotificationCenter, _ name: Notification.Name, object: Any? = nil) {
+            let token = center.addObserver(forName: name, object: object, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.reload() }
+            }
+            observers.append((center, token))
         }
+        observe(.default, .EKEventStoreChanged, object: store)
+        observe(.default, .NSCalendarDayChanged)
+        observe(NSWorkspace.shared.notificationCenter, NSWorkspace.didWakeNotification)
         let timer = Timer(timeInterval: 30, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
         }
@@ -59,26 +67,45 @@ final class AgendaModel {
     }
 
     func reload() {
+        load()
+        tick()
+    }
+
+    private func load() {
         guard access == .granted else { return }
         let calendar = Calendar.current
         let start = calendar.startOfDay(for: Date())
+        loadedDay = start
         guard let end = calendar.date(byAdding: .day, value: 2, to: start) else { return }
         let predicate = store.predicateForEvents(withStart: start, end: end, calendars: nil)
         events = store.events(matching: predicate)
+            .filter { Self.isVisible($0) }
             .sorted { $0.startDate < $1.startDate }
             .map { event in
                 AgendaEvent(
-                    id: event.eventIdentifier ?? UUID().uuidString,
+                    id: Self.occurrenceID(event.eventIdentifier ?? "\(event.title ?? "")", start: event.startDate),
                     title: event.title ?? "Untitled",
                     start: event.startDate,
                     end: event.endDate,
                     isAllDay: event.isAllDay,
                     color: event.calendar.map { Color(nsColor: $0.color) } ?? .accent,
                     location: event.location,
-                    url: event.url
+                    url: event.url,
+                    joinURL: AgendaEvent.meetingLink(in: [event.url?.absoluteString, event.location, event.notes])
                 )
             }
-        tick()
+    }
+
+    /// Cancelled events and ones the user declined never show up or alert.
+    private static func isVisible(_ event: EKEvent) -> Bool {
+        if event.status == .canceled { return false }
+        let declined = event.attendees?.contains { $0.isCurrentUser && $0.participantStatus == .declined } ?? false
+        return !declined
+    }
+
+    /// Recurring events share one `eventIdentifier`; the start date makes each occurrence unique.
+    nonisolated static func occurrenceID(_ identifier: String, start: Date) -> String {
+        "\(identifier)|\(Int(start.timeIntervalSince1970))"
     }
 
     var today: [AgendaEvent] {
@@ -95,12 +122,16 @@ final class AgendaModel {
     }
 
     func tick(at date: Date = Date()) {
+        if access == .granted, !Calendar.current.isDate(date, inSameDayAs: loadedDay), Calendar.current.isDate(Date(), inSameDayAs: date) {
+            load() // the day rolled over (or the Mac slept through midnight)
+        }
         now = date
+        alerted = alerted.filter { $0.value > date.addingTimeInterval(-86_400) }
         let lead = TimeInterval(alertMinutes() * 60)
-        for event in events where !event.isAllDay && !alerted.contains(event.id) {
+        for event in events where !event.isAllDay && alerted[event.id] == nil {
             let until = event.start.timeIntervalSince(date)
             guard until > 0, until <= lead else { continue }
-            alerted.insert(event.id)
+            alerted[event.id] = event.start
             let minutes = max(Int((until / 60).rounded()), 1)
             onAlert?(NotchAlert(
                 kind: .eventSoon, symbol: "calendar", tint: event.color,

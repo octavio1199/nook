@@ -21,7 +21,15 @@ final class NotchInteraction {
     @ObservationIgnored private var menuDepth = 0
     /// After a menu closes the pointer is usually still outside the panel (where the menu was),
     /// so stay open until the pointer comes back over the panel.
-    @ObservationIgnored private var holdUntilPointerReturns = false
+    @ObservationIgnored private(set) var holdUntilPointerReturns = false
+    @ObservationIgnored private var holdTask: Task<Void, Never>?
+    /// Safety valve: the hold can't outlive this even if the pointer never returns.
+    static let holdTimeout: Duration = .seconds(8)
+    static let maxQueuedAlerts = 3
+    /// True when the last capture request came from an explicit command (⌘N, hotkey), which
+    /// should also leave an open task detail; false for the "first click" focus.
+    @ObservationIgnored private(set) var captureLeavesDetail = true
+    @ObservationIgnored private var pendingCapture = false
     var geometry: NotchGeometry
 
     private let settings: AppSettings
@@ -33,7 +41,10 @@ final class NotchInteraction {
     @ObservationIgnored var onNeedsKeyFocus: (() -> Void)?
     @ObservationIgnored var onFeedback: ((NotchAlert) -> Void)?
 
-    @ObservationIgnored private var alerts: [NotchAlert] = []
+    /// Alerts waiting for the notch to be free (they arrived while open, or behind another peek).
+    @ObservationIgnored private(set) var queuedAlerts: [NotchAlert] = []
+    @ObservationIgnored private var overflow = 0
+    @ObservationIgnored private var lastBaseDetail: String?
     @ObservationIgnored private var peekTask: Task<Void, Never>?
     @ObservationIgnored private var hoverTask: Task<Void, Never>?
     @ObservationIgnored private var waitingForPointerExit = false
@@ -99,7 +110,7 @@ final class NotchInteraction {
             }
         case .open:
             if holdUntilPointerReturns {
-                if inside { holdUntilPointerReturns = false }
+                if inside { endHold() }
                 return cancelHover()
             }
             guard !inside, !buttonHeld, !isPinned, menuDepth == 0 else { return cancelHover() }
@@ -109,14 +120,37 @@ final class NotchInteraction {
         }
     }
 
+    /// Only menus that begin while the panel is open matter (context menus, pickers); menus tracked
+    /// while closed (status item, other apps) are ignored.
     func menuDidBeginTracking() {
+        guard state == .open else { return }
         menuDepth += 1
         cancelHover()
     }
 
     func menuDidEndTracking() {
-        menuDepth = max(menuDepth - 1, 0)
-        if state == .open, menuDepth == 0 { holdUntilPointerReturns = true }
+        guard menuDepth > 0 else { return }
+        menuDepth -= 1
+        if state == .open, menuDepth == 0 { beginHold() }
+    }
+
+    private func beginHold() {
+        holdUntilPointerReturns = true
+        holdTask?.cancel()
+        let clock = clock
+        holdTask = Task { [weak self] in
+            try? await clock.sleep(for: Self.holdTimeout)
+            guard let self, !Task.isCancelled, holdUntilPointerReturns else { return }
+            holdTask = nil
+            holdUntilPointerReturns = false
+            if state == .open, let pointer { mouseMoved(to: pointer, buttonHeld: buttonHeld) }
+        }
+    }
+
+    private func endHold() {
+        holdUntilPointerReturns = false
+        holdTask?.cancel()
+        holdTask = nil
     }
 
     func mouseDown(at point: NSPoint) {
@@ -155,16 +189,26 @@ final class NotchInteraction {
     func open(capturing: Bool = false) {
         peekTask?.cancel()
         holdingPeek = false
-        alerts.removeAll()
+        queuedAlerts.removeAll()
+        overflow = 0
         withAnimation(Motion.open) {
             state = .open
             peekAlert = nil
         }
         if capturing {
             area = .workspace
+            pendingCapture = true
+            captureLeavesDetail = true
             onNeedsKeyFocus?()
             captureRequest += 1
         }
+    }
+
+    /// The workspace view appears after `open(capturing:)` returns, so it misses the `captureRequest`
+    /// change; it asks here once on appear instead.
+    func takePendingCapture() -> Bool {
+        defer { pendingCapture = false }
+        return pendingCapture && state == .open
     }
 
     func toggleFromKeyboard() {
@@ -176,9 +220,23 @@ final class NotchInteraction {
         peekTask?.cancel()
         holdingPeek = false
         isPinned = false
-        holdUntilPointerReturns = false
+        endHold()
+        menuDepth = 0
+        pendingCapture = false
         waitingForPointerExit = pointerStaysOver
         withAnimation(Motion.close) { state = .closed }
+        showQueuedPeekAfterClose()
+    }
+
+    /// Alerts that arrived while the panel was open get their peek once it has finished closing.
+    private func showQueuedPeekAfterClose() {
+        guard !queuedAlerts.isEmpty else { return }
+        let clock = clock
+        peekTask = Task { [weak self] in
+            try? await clock.sleep(for: .milliseconds(500))
+            guard let self, !Task.isCancelled else { return }
+            showNextPeek()
+        }
     }
 
     func show(_ area: PanelArea) {
@@ -186,8 +244,9 @@ final class NotchInteraction {
         withAnimation(Motion.navigate) { self.area = area }
     }
 
-    func requestCapture() {
+    func requestCapture(leavingDetail: Bool = true) {
         area = .workspace
+        captureLeavesDetail = leavingDetail
         onNeedsKeyFocus?()
         captureRequest += 1
     }
@@ -196,9 +255,22 @@ final class NotchInteraction {
 
     func enqueue(_ alert: NotchAlert) {
         onFeedback?(alert)
-        guard state != .open else { return }
-        alerts.append(alert)
+        queue(alert)
         if state == .closed { showNextPeek() }
+    }
+
+    /// Keeps at most `maxQueuedAlerts`; extras are folded into the last one as "+N more".
+    private func queue(_ alert: NotchAlert) {
+        guard queuedAlerts.count >= Self.maxQueuedAlerts else {
+            queuedAlerts.append(alert)
+            overflow = 0
+            return
+        }
+        if overflow == 0 { lastBaseDetail = queuedAlerts[queuedAlerts.count - 1].detail }
+        overflow += 1
+        queuedAlerts[queuedAlerts.count - 1].detail = [lastBaseDetail, "+\(overflow) more"]
+            .compactMap { $0 }
+            .joined(separator: " · ")
     }
 
     func tapPeek(_ alert: NotchAlert) {
@@ -206,8 +278,9 @@ final class NotchInteraction {
     }
 
     private func showNextPeek() {
-        guard state == .closed, !alerts.isEmpty else { return }
-        let alert = alerts.removeFirst()
+        guard state == .closed, !queuedAlerts.isEmpty else { return }
+        let alert = queuedAlerts.removeFirst()
+        if queuedAlerts.isEmpty { overflow = 0 }
         withAnimation(Motion.peek) {
             peekAlert = alert
             state = .peek

@@ -1,18 +1,20 @@
+import Observation
 import SwiftUI
 
 /// Drives the compact "Archived “Title” · Undo" toast at the bottom of the Tasks column.
 /// Hides itself after a few seconds and whenever the planner's undo manager undoes something (⌘Z too).
-final class UndoToaster: ObservableObject {
+@Observable
+final class UndoToaster {
     struct Toast: Equatable, Identifiable {
         let id = UUID()
         var message: String
         var symbol: String
     }
 
-    @Published private(set) var toast: Toast?
-    private var hideTask: Task<Void, Never>?
-    private var observer: NSObjectProtocol?
-    private weak var observed: UndoManager?
+    private(set) var toast: Toast?
+    @ObservationIgnored private var hideTask: Task<Void, Never>?
+    @ObservationIgnored private var observer: NSObjectProtocol?
+    @ObservationIgnored private weak var observed: UndoManager?
 
     /// Starts listening for undo on `manager`; safe to call repeatedly.
     func observe(_ manager: UndoManager) {

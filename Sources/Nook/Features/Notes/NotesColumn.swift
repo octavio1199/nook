@@ -2,8 +2,8 @@ import SwiftUI
 
 struct NotesColumn: View {
     @Environment(PlannerStore.self) private var planner
+    @Environment(WorkspaceState.self) private var workspace
 
-    @LocalState private var day = Calendar.current.startOfDay(for: Date())
     @LocalState private var text = ""
     @LocalState private var loaded = false
     @LocalState private var sentCount = 0
@@ -11,7 +11,8 @@ struct NotesColumn: View {
     @LocalState private var showHints = false
     @AppStorage("notesWrapLines") private var wrapLines = true
 
-    private var isToday: Bool { Calendar.current.isDateInToday(day) }
+    private var day: Date { workspace.notesDay }
+    private var isToday: Bool { workspace.notesDayIsToday }
 
     var body: some View {
         Card("Notepad", symbol: "note.text", trailing: AnyView(toolbar)) {
@@ -29,13 +30,13 @@ struct NotesColumn: View {
         }
         .onAppear(perform: load)
         .onChange(of: text) { save() }
-        .onChange(of: day) { load() }
+        .onChange(of: workspace.notesDay) { load() }
         // The store edits notes too (sent lines disappear when their task is done, undo restores them).
         .onChange(of: planner.note(for: day)) { load() }
         .onReceive(NotificationCenter.default.publisher(for: .nookShowNotesDay)) { note in
             guard let key = note.object as? String, let date = DayKey.date(from: key) else { return }
             save()
-            day = Calendar.current.startOfDay(for: date)
+            workspace.selectNotesDay(date)
         }
     }
 
@@ -100,7 +101,7 @@ struct NotesColumn: View {
         HStack(spacing: 2) {
             arrow("chevron.left", help: "Previous day") { shift(-1) }
             Button {
-                withAnimation(Motion.navigate) { day = Calendar.current.startOfDay(for: Date()) }
+                withAnimation(Motion.navigate) { workspace.selectNotesDay(workspace.today) }
             } label: {
                 Text(dayLabel)
                     .font(Typography.micro)
@@ -128,9 +129,9 @@ struct NotesColumn: View {
     }
 
     private var dayLabel: String {
-        let cal = Calendar.current
-        if cal.isDateInToday(day) { return "Today" }
-        if cal.isDateInYesterday(day) { return "Yesterday" }
+        if isToday { return "Today" }
+        if let yesterday = Calendar.current.date(byAdding: .day, value: -1, to: workspace.today),
+           Calendar.current.isDate(day, inSameDayAs: yesterday) { return "Yesterday" }
         return day.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
     }
 
@@ -167,8 +168,7 @@ struct NotesColumn: View {
 
     private func shift(_ delta: Int) {
         guard let next = Calendar.current.date(byAdding: .day, value: delta, to: day) else { return }
-        let today = Calendar.current.startOfDay(for: Date())
-        withAnimation(Motion.navigate) { day = min(next, today) }
+        withAnimation(Motion.navigate) { workspace.selectNotesDay(next) }
     }
 
     // MARK: - ⌘↩

@@ -105,22 +105,34 @@ nonisolated enum CaptureParser {
         }
 
         // weekday names
+        var sameWeekday = false // "on friday" said on a Friday: resolved once the time is known
         if day == nil {
-            let names = "monday|mon|tuesday|tues|tue|wednesday|wed|thursday|thurs|thur|thu|friday|fri|saturday|sat|sunday|sun|segunda(?:-feira)?|seg|ter[çc]a(?:-feira)?|quarta(?:-feira)?|qua|quinta(?:-feira)?|qui|sexta(?:-feira)?|sex|s[áa]bado|sab|domingo|dom"
-            let prefix = "(?:(?:on|next|this|no|na|em|nesta|neste|pr[óo]xim[ao]|para|for)\\s+)?"
-            if let c = take("\(b)\(prefix)(\(names))\(e)", from: &s), let raw = c[1] {
+            let full = "monday|tuesday|wednesday|thursday|friday|saturday|sunday|segunda(?:-feira)?|ter[çc]a(?:-feira)?|quarta(?:-feira)?|quinta(?:-feira)?|sexta(?:-feira)?|s[áa]bado|domingo"
+            let short = "mon|tues|tue|wed|thurs|thur|thu|fri|sat|sun|seg|qua|qui|sex|sab|dom"
+            let preposition = "(?:on|next|this|no|na|em|nesta|neste|dia|pr[óo]xim[ao]|para|for)"
+            // Full names stand alone; short ones (sun, sex, dom...) only after a preposition,
+            // so "buy sun cream" and "dom casmurro" stay titles.
+            var hit: (String?, String?)?
+            if let c = take("\(b)(?:(\(preposition))\\s+)?(\(full))\(e)", from: &s) {
+                hit = (c[1], c[2])
+            } else if let c = take("\(b)(\(preposition))\\s+(\(short))\(e)", from: &s) {
+                hit = (c[1], c[2])
+            }
+            if let (prep, raw) = hit, let raw {
                 var key = raw.lowercased().folding(options: .diacriticInsensitive, locale: nil)
                 if let dash = key.range(of: "-feira") { key.removeSubrange(dash) }
                 if let target = weekdays[key] {
                     let current = calendar.component(.weekday, from: today)
                     var ahead = (target - current + 7) % 7
-                    if ahead == 0 { ahead = 7 }
+                    let forcesNext = prep.map { ["next", "proxim", "proxima", "proximo"].contains($0.lowercased().folding(options: .diacriticInsensitive, locale: nil)) } ?? false
+                    if ahead == 0 {
+                        if forcesNext { ahead = 7 } else { sameWeekday = true }
+                    }
                     day = calendar.date(byAdding: .day, value: ahead, to: today)
                 }
             }
         }
 
-        // times: 3pm, 3:30pm / 15:30 / 15h, 15h30 / at 15, às 15
         if exact == nil {
             let lead = "(?:\(b)(?:at|às|ás)\\s+)?"
             if let c = take("\(lead)\(b)(1[0-2]|0?[1-9])(?::([0-5]\\d))?\\s*(am|pm)\(e)", from: &s),
@@ -150,7 +162,11 @@ nonisolated enum CaptureParser {
         if let exact {
             return When(date: exact, hasTime: true)
         }
-        if let day {
+        if var day {
+            if sameWeekday, let time,
+               let slot = calendar.date(bySettingHour: time.h, minute: time.m, second: 0, of: day), slot <= now {
+                day = calendar.date(byAdding: .day, value: 7, to: day) ?? day
+            }
             if let time, let d = calendar.date(bySettingHour: time.h, minute: time.m, second: 0, of: day) {
                 return When(date: d, hasTime: true)
             }

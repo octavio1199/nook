@@ -144,12 +144,39 @@ final class PlannerStore {
         mutate("Delete Task") { $0.tasks.removeAll { $0.id == id } }
     }
 
-    /// Moves `id` so it sits right before `target` in manual ordering.
+    /// Moves `id` so it sits right before `target`. The list sorts by priority first, so a task
+    /// dropped among a different priority adopts the target's priority to land where it was put.
+    /// (Timed vs. untimed is decided by the due date, which a drag never edits.)
     func move(_ id: TaskItem.ID, before target: TaskItem.ID) {
-        guard id != target, let targetOrder = data.tasks.first(where: { $0.id == target })?.order,
-              let index = data.tasks.firstIndex(where: { $0.id == id }) else { return }
-        let previous = data.tasks.map(\.order).filter { $0 < targetOrder }.max() ?? (targetOrder - 1)
-        mutate("Move Task") { $0.tasks[index].order = (previous + targetOrder) / 2 }
+        guard id != target, data.tasks.contains(where: { $0.id == target }), data.tasks.contains(where: { $0.id == id }) else { return }
+        mutate("Move Task") { data in
+            guard let targetIndex = data.tasks.firstIndex(where: { $0.id == target }),
+                  let index = data.tasks.firstIndex(where: { $0.id == id }) else { return }
+            data.tasks[index].priority = data.tasks[targetIndex].priority
+            let priority = data.tasks[targetIndex].priority
+
+            func neighbours() -> (previous: Double, target: Double, tied: Bool) {
+                let t = data.tasks[targetIndex].order
+                let group = data.tasks.indices.filter { $0 != index && data.tasks[$0].priority == priority }
+                let previous = group.map { data.tasks[$0].order }.filter { $0 < t }.max() ?? (t - 1)
+                let tied = group.contains { $0 != targetIndex && data.tasks[$0].order == t }
+                return (previous, t, tied)
+            }
+            var n = neighbours()
+            if n.target - n.previous < Self.minOrderGap || n.tied {
+                Self.renormalizeOrders(&data.tasks)
+                n = neighbours()
+            }
+            data.tasks[index].order = (n.previous + n.target) / 2
+        }
+    }
+
+    static let minOrderGap = 1e-6
+
+    /// Rewrites `order` as 1, 2, 3... keeping the current relative order (ties keep array order).
+    static func renormalizeOrders(_ tasks: inout [TaskItem]) {
+        let ranked = tasks.indices.sorted { (tasks[$0].order, $0) < (tasks[$1].order, $1) }
+        for (rank, index) in ranked.enumerated() { tasks[index].order = Double(rank + 1) }
     }
 
     func archivedTasks() -> [TaskItem] {

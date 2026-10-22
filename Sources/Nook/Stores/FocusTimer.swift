@@ -58,14 +58,44 @@ final class FocusTimer {
     @ObservationIgnored private var accumulated: TimeInterval = 0
     @ObservationIgnored private var resumedAt: Date?
     @ObservationIgnored private var ticker: Timer?
-    @ObservationIgnored private var sleepObserver: Any?
+    @ObservationIgnored private var observers: [(center: NotificationCenter, token: Any)] = []
+    /// True when the system (sleep / lock) paused the timer, not the user.
+    @ObservationIgnored private var pausedBySystem = false
+    @ObservationIgnored private var screenLocked = false
 
     init() {
-        sleepObserver = NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.willSleepNotification, object: nil, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.pause() }
+        let workspace = NSWorkspace.shared.notificationCenter
+        let distributed = DistributedNotificationCenter.default()
+        observe(workspace, NSWorkspace.willSleepNotification) { $0.systemPause() }
+        observe(workspace, NSWorkspace.screensDidSleepNotification) { $0.systemPause() }
+        observe(distributed, Notification.Name("com.apple.screenIsLocked")) { $0.screenLocked = true; $0.systemPause() }
+        observe(workspace, NSWorkspace.didWakeNotification) { $0.systemWake() }
+        observe(workspace, NSWorkspace.screensDidWakeNotification) { $0.systemWake() }
+        observe(distributed, Notification.Name("com.apple.screenIsUnlocked")) { $0.screenLocked = false; $0.systemWake() }
+    }
+
+    private func observe(_ center: NotificationCenter, _ name: Notification.Name, _ handler: @escaping @MainActor @Sendable (FocusTimer) -> Void) {
+        let token = center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { if let self { handler(self) } }
         }
+        observers.append((center, token))
+    }
+
+    /// Pauses because the Mac slept or locked; remembered so we can tell the user on return.
+    func systemPause() {
+        guard isRunning else { return }
+        pause()
+        pausedBySystem = true
+    }
+
+    /// On wake / unlock: if the system (not the user) paused the timer, say so, with a Resume pill.
+    func systemWake() {
+        guard pausedBySystem, isPaused, !screenLocked else { return }
+        pausedBySystem = false
+        onAlert?(NotchAlert(
+            kind: .focusPaused, symbol: "pause.circle.fill", tint: phase?.tint ?? .focus,
+            headline: "Focus paused while you were away", detail: label
+        ))
     }
 
     var isActive: Bool { phase != nil }
@@ -146,6 +176,7 @@ final class FocusTimer {
         accumulated = elapsed
         resumedAt = nil
         isPaused = true
+        pausedBySystem = false
         stopTicking()
     }
 
@@ -154,6 +185,7 @@ final class FocusTimer {
         now = Date()
         resumedAt = now
         isPaused = false
+        pausedBySystem = false
         startTicking()
     }
 
@@ -173,13 +205,16 @@ final class FocusTimer {
 
     func skip() {
         guard isActive else { return }
-        finishPhase(announce: false)
+        // Skipping a focus phase early doesn't earn a completed session in the cycle.
+        let counted = phase != .focus || (duration > 0 && elapsed >= duration / 2)
+        finishPhase(announce: false, countsTowardCycle: counted)
     }
 
     private func reset() {
         stopTicking()
         phase = nil
         isPaused = false
+        pausedBySystem = false
         duration = 0
         accumulated = 0
         resumedAt = nil
@@ -205,16 +240,16 @@ final class FocusTimer {
     func tick(at date: Date = Date()) {
         now = date
         guard let phase, phase != .stopwatch, !isPaused, elapsed >= duration else { return }
-        finishPhase(announce: true)
+        finishPhase(announce: true, countsTowardCycle: true)
     }
 
-    private func finishPhase(announce: Bool) {
+    private func finishPhase(announce: Bool, countsTowardCycle: Bool) {
         guard let phase else { return }
         logIfFocus()
         switch phase {
         case .focus:
-            completedInCycle += 1
-            let long = completedInCycle % preset.sessionsBeforeLongBreak == 0
+            if countsTowardCycle { completedInCycle += 1 }
+            let long = completedInCycle > 0 && completedInCycle % preset.sessionsBeforeLongBreak == 0
             if announce {
                 onAlert?(NotchAlert(
                     kind: .focusFinished, symbol: "checkmark.circle.fill", tint: .focus,

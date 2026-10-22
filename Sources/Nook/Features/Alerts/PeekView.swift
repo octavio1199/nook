@@ -99,6 +99,9 @@ struct PeekView: View {
             return PillAction(title: "Start break") { focus.startBreak() }
         case .breakFinished:
             return PillAction(title: "Start focus") { focus.startNextFocus() }
+        case .focusPaused:
+            guard focus.isPaused else { return nil }
+            return PillAction(title: "Resume") { focus.resume() }
         default:
             return nil
         }

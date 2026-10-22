@@ -16,6 +16,7 @@ final class StatusItemController: NSObject {
         menu.addItem(.separator())
         menu.addItem(withTitle: "Quit Nook", action: #selector(quit), keyEquivalent: "q").target = self
         item.menu = menu
+        app.statusMenu = menu
     }
 
     @objc private func openPanel() { app.notch.open() }

@@ -71,6 +71,10 @@ private struct EventRow: View {
     var now: Date
 
     private var isNow: Bool { !event.isAllDay && event.start <= now && event.end > now }
+    private var joinURL: URL? {
+        guard let url = event.joinURL, Self.isSafe(url), url.scheme?.lowercased() == "https", event.end > now else { return nil }
+        return url
+    }
     private var progress: Double {
         let total = event.end.timeIntervalSince(event.start)
         return total > 0 ? min(max(now.timeIntervalSince(event.start) / total, 0), 1) : 0
@@ -105,6 +109,17 @@ private struct EventRow: View {
                 }
             }
             Spacer(minLength: 0)
+            if let join = joinURL {
+                Button { NSWorkspace.shared.open(join) } label: {
+                    Text("Join").font(.system(size: 10, weight: .semibold))
+                        .padding(.horizontal, 8).padding(.vertical, 2)
+                        .background(Capsule().fill(event.color.opacity(isNow ? 0.9 : 0.25)))
+                        .foregroundStyle(isNow ? Color.black : Color.textPrimary)
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .help("Join \(join.host() ?? "call")")
+            }
         }
         .padding(.vertical, 2).padding(.horizontal, 4)
         .background(RoundedRectangle(cornerRadius: 6).fill(isNow ? Color.surfaceRaised : .clear))

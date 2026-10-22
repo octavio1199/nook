@@ -4,27 +4,15 @@ struct TasksColumn: View {
     @Environment(PlannerStore.self) private var planner
     @Environment(NotchInteraction.self) private var notch
 
-    enum Scope: String, CaseIterable, Identifiable {
-        case today, upcoming, done, archive
-        var id: Self { self }
+    typealias Scope = TaskScope
 
-        /// Short labels so four segments fit a ~250pt column.
-        var label: String {
-            switch self {
-            case .today: "Today"
-            case .upcoming: "Next"
-            case .done: "Done"
-            case .archive: ""
-            }
-    }
-    }
-
-    @LocalState private var scope: Scope = .today
-    @LocalState private var draft = ""
-    @LocalState private var detailID: UUID?
+    @Environment(WorkspaceState.self) private var workspace
     @FocusState private var captureFocused: Bool
     @Namespace private var switcherNamespace
-    @StateObject private var toaster = UndoToaster()
+    private var toaster: UndoToaster { workspace.toaster }
+    private var scope: Scope { workspace.taskScope }
+    private var detailID: UUID? { workspace.detailTaskID }
+    private var draft: String { workspace.captureDraft }
 
     var body: some View {
         TimelineView(.everyMinute) { context in
@@ -35,7 +23,7 @@ struct TasksColumn: View {
     private func content(now: Date) -> some View {
         let today = planner.todayTasks(now: now)
         let upcoming = planner.upcomingTasks(now: now)
-        let done = planner.doneTasks()
+        let done = planner.doneTasks(limit: .max)
         let archived = planner.archivedTasks()
         let visible: [TaskItem] = switch scope {
         case .today: today
@@ -48,7 +36,7 @@ struct TasksColumn: View {
         return Card("Tasks", symbol: "checklist") {
             ZStack {
                 if let id = detailID, planner.task(id) != nil {
-                    TaskDetailView(taskID: id, now: now, toaster: toaster) { detailID = nil }
+                    TaskDetailView(taskID: id, now: now, toaster: toaster) { workspace.detailTaskID = nil }
                         .transition(.opacity.combined(with: .offset(x: 14)))
                 } else {
                     VStack(alignment: .leading, spacing: 8) {
@@ -59,7 +47,7 @@ struct TasksColumn: View {
                     .transition(.opacity.combined(with: .offset(x: -14)))
                 }
             }
-            .animation(Motion.navigate, value: detailID)
+            .animation(Motion.navigate, value: workspace.detailTaskID)
             .overlay(alignment: .bottom) {
                 if let toast = toaster.toast {
                     UndoToastView(toast: toast) { toaster.undo(planner.undoManager) }
@@ -68,11 +56,25 @@ struct TasksColumn: View {
                 }
             }
         }
-        .onAppear { toaster.observe(planner.undoManager) }
-        .onChange(of: notch.captureRequest) { captureFocused = true }
+        .onAppear {
+            toaster.observe(planner.undoManager)
+            if let id = workspace.detailTaskID, planner.task(id) == nil { workspace.detailTaskID = nil }
+            if notch.takePendingCapture() {
+                workspace.detailTaskID = nil
+                DispatchQueue.main.async { captureFocused = true }
+            }
+        }
+        .onChange(of: notch.captureRequest) {
+            if notch.captureLeavesDetail { workspace.detailTaskID = nil }
+            DispatchQueue.main.async { captureFocused = true }
+        }
     }
 
     // MARK: - Capture
+
+    private var draftBinding: Binding<String> {
+        Binding(get: { workspace.captureDraft }, set: { workspace.captureDraft = $0 })
+    }
 
     private func captureField(now: Date) -> some View {
         let parsed = draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? [] : CaptureParser.parse(draft, now: now)
@@ -81,7 +83,7 @@ struct TasksColumn: View {
                 Image(systemName: "plus")
                     .font(.system(size: 10, weight: .bold))
                     .foregroundStyle(captureFocused ? Color.accent : Color.textTertiary)
-                TextField("", text: $draft, prompt: Text("Add a task… try “call Ana tomorrow 3pm !high #work”").foregroundStyle(Color.textTertiary))
+                TextField("", text: draftBinding, prompt: Text("Add a task… try “call Ana tomorrow 3pm !high #work”").foregroundStyle(Color.textTertiary))
                     .textFieldStyle(.plain)
                     .font(Typography.body)
                     .foregroundStyle(Color.textPrimary)
@@ -122,7 +124,7 @@ struct TasksColumn: View {
         guard !tasks.isEmpty else { return }
         withAnimation(Motion.navigate) {
             planner.add(tasks)
-            draft = ""
+            workspace.captureDraft = ""
         }
     }
 
@@ -133,7 +135,7 @@ struct TasksColumn: View {
             ForEach(Scope.allCases) { item in
                 let selected = item == scope
                 Button {
-                    withAnimation(Motion.navigate) { scope = item }
+                    withAnimation(Motion.navigate) { workspace.taskScope = item }
                 } label: {
                     HStack(spacing: 4) {
                         if item == .archive {
@@ -182,10 +184,10 @@ struct TasksColumn: View {
                     ForEach(tasks) { task in
                         Group {
                             if scope == .archive {
-                                ArchivedRow(task: task, now: now, toaster: toaster) { detailID = task.id }
+                                ArchivedRow(task: task, now: now, toaster: toaster) { workspace.detailTaskID = task.id }
                             } else {
                                 TaskRow(task: task, now: now, reorderable: scope == .today, toaster: toaster) {
-                                    detailID = task.id
+                                    workspace.detailTaskID = task.id
                                 }
                             }
                         }
