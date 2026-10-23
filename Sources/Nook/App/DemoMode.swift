@@ -105,10 +105,8 @@ enum DemoMode {
                 app.notch.open()
                 app.notch.isPinned = true
                 app.workspace.setTasksWidth(560, available: 760)
-            case "keyboard":
-                renderSettingsPage(KeyboardPage(), app: app)
-            case "general":
-                renderSettingsPage(GeneralPage(), app: app)
+            case "settings":
+                renderSettings(app: app)
             case "composer-dump":
                 app.notch.open()
                 app.notch.isPinned = true
@@ -134,18 +132,21 @@ enum DemoMode {
         }
     }
 
-    /// The Settings window isn't part of the panel; render the Keyboard page on its own.
-    private static func renderSettingsPage(_ page: some View, app: AppDependencies) {
+    /// The Settings window isn't part of the panel: renders every section to `<snapshot>.<section>.png`.
+    private static func renderSettings(app: AppDependencies) {
         let args = ProcessInfo.processInfo.arguments
         guard let index = args.firstIndex(of: "--snapshot"), args.indices.contains(index + 1) else { return }
-        let view = NSHostingView(rootView: app.inject(into: page).frame(width: 520, height: 420))
-        view.frame = NSRect(x: 0, y: 0, width: 520, height: 420)
-        let window = NSWindow(contentRect: view.frame, styleMask: [.titled], backing: .buffered, defer: false)
-        window.contentView = view
-        window.appearance = NSAppearance(named: .darkAqua)
-        view.layoutSubtreeIfNeeded()
-        guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
-        view.cacheDisplay(in: view.bounds, to: rep)
-        try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: args[index + 1] + ".settings.png"))
+        let size = SettingsView.minSize
+        for section in SettingsSection.allCases {
+            let view = NSHostingView(rootView: app.inject(into: SettingsView(fixedSection: section)).frame(width: size.width, height: size.height))
+            view.frame = NSRect(origin: .zero, size: size)
+            let window = NSWindow(contentRect: view.frame, styleMask: [.titled], backing: .buffered, defer: false)
+            window.contentView = view
+            window.appearance = NSAppearance(named: .darkAqua)
+            view.layoutSubtreeIfNeeded()
+            guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { continue }
+            view.cacheDisplay(in: view.bounds, to: rep)
+            try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: args[index + 1] + ".\(section.rawValue).png"))
+        }
     }
 }

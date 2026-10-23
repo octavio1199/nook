@@ -20,7 +20,7 @@ final class AppDependencies {
 
     init(planner: PlannerStore = PlannerStore()) {
         self.planner = planner
-        let geometry = NSScreen.nook(for: settings.displayChoice).map(NotchGeometry.init(screen:)) ?? .placeholder
+        let geometry = NSScreen.nook(for: settings.displayChoice, activePoint: NSEvent.mouseLocation).map(NotchGeometry.init(screen:)) ?? .placeholder
         notch = NotchInteraction(settings: settings, focus: focus, agenda: agenda, geometry: geometry)
         dueWatcher = TaskDueWatcher(planner: planner)
         notifier = SystemNotifier(settings: settings, focus: focus, planner: planner, agenda: agenda, notch: notch)

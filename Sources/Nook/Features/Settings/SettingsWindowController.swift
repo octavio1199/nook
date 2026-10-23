@@ -12,12 +12,15 @@ final class SettingsWindowController {
     func show() {
         if window == nil {
             let host = NSHostingController(rootView: app.inject(into: SettingsView()))
+            host.sizingOptions = []
             let window = NSWindow(contentViewController: host)
             window.title = "Nook Settings"
-            window.styleMask = [.titled, .closable, .miniaturizable]
-            window.setContentSize(NSSize(width: 520, height: 420))
+            window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
+            window.contentMinSize = SettingsView.minSize
+            window.setContentSize(SettingsView.minSize)
             window.isReleasedWhenClosed = false
             window.center()
+            window.setFrameAutosaveName("NookSettings")
             self.window = window
         }
         NSApp.activate(ignoringOtherApps: true)
@@ -25,19 +28,125 @@ final class SettingsWindowController {
     }
 }
 
-struct SettingsView: View {
-    var body: some View {
-        TabView {
-            GeneralPage().tabItem { Label("General", systemImage: "gearshape") }
-            AppearancePage().tabItem { Label("Appearance", systemImage: "paintbrush") }
-            FocusPage().tabItem { Label("Focus", systemImage: "timer") }
-            KeyboardPage().tabItem { Label("Keyboard", systemImage: "keyboard") }
-            NotificationsPage().tabItem { Label("Notifications", systemImage: "bell") }
-            CalendarPage().tabItem { Label("Calendar", systemImage: "calendar") }
-            DataPage().tabItem { Label("Data", systemImage: "externaldrive") }
-            AboutPage().tabItem { Label("About", systemImage: "info.circle") }
+enum SettingsSection: String, CaseIterable, Identifiable {
+    case general, appearance, focus, keyboard, notifications, calendar, data, about
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .general: "General"
+        case .appearance: "Appearance"
+        case .focus: "Focus"
+        case .keyboard: "Keyboard"
+        case .notifications: "Notifications"
+        case .calendar: "Calendar"
+        case .data: "Data"
+        case .about: "About"
         }
-        .frame(width: 520, height: 420)
+    }
+
+    var symbol: String {
+        switch self {
+        case .general: "gearshape.fill"
+        case .appearance: "paintbrush.fill"
+        case .focus: "timer"
+        case .keyboard: "keyboard.fill"
+        case .notifications: "bell.badge.fill"
+        case .calendar: "calendar"
+        case .data: "externaldrive.fill"
+        case .about: "info.circle.fill"
+        }
+    }
+
+    /// Icon tile color, as in System Settings.
+    var tint: Color {
+        switch self {
+        case .general: .gray
+        case .appearance: .blue
+        case .focus: .orange
+        case .keyboard: .gray
+        case .notifications: .red
+        case .calendar: .red
+        case .data: .indigo
+        case .about: .gray
+        }
+    }
+}
+
+/// System Settings layout: sections in a sidebar, the page on the right. Remembers the last section.
+struct SettingsView: View {
+    static let minSize = NSSize(width: 720, height: 520)
+    /// Screenshots pin a section without touching the stored one.
+    var fixedSection: SettingsSection?
+    @AppStorage("settingsSection") private var stored = SettingsSection.general.rawValue
+
+    private var section: SettingsSection {
+        fixedSection ?? SettingsSection(rawValue: stored) ?? .general
+    }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            List(selection: Binding(get: { section }, set: { if let new = $0 { stored = new.rawValue } })) {
+                ForEach(SettingsSection.allCases) { item in
+                    SidebarRow(section: item).tag(item)
+                }
+            }
+            .listStyle(.sidebar)
+            .frame(width: 200)
+            Divider()
+            VStack(alignment: .leading, spacing: 0) {
+                Text(section.title)
+                    .font(.title2.weight(.semibold))
+                    .padding(.horizontal, 28)
+                    .padding(.top, 18)
+                    .padding(.bottom, 2)
+                page(section)
+                    // One background for the title and the page (grouped forms draw their own otherwise).
+                    .scrollContentBackground(.hidden)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+        .frame(minWidth: Self.minSize.width, minHeight: Self.minSize.height)
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    @ViewBuilder
+    private func page(_ section: SettingsSection) -> some View {
+        switch section {
+        case .general: GeneralPage()
+        case .appearance: AppearancePage()
+        case .focus: FocusPage()
+        case .keyboard: KeyboardPage()
+        case .notifications: NotificationsPage()
+        case .calendar: CalendarPage()
+        case .data: DataPage()
+        case .about: AboutPage()
+        }
+    }
+}
+
+extension Text {
+    /// Explanations under a setting: secondary, left-aligned like System Settings.
+    func settingsFootnote() -> some View {
+        font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.leading).frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct SidebarRow: View {
+    let section: SettingsSection
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: section.symbol)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 22, height: 22)
+                .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(section.tint.gradient))
+            Text(section.title)
+        }
+        .padding(.vertical, 2)
     }
 }
 
@@ -56,16 +165,21 @@ struct GeneralPage: View {
     var body: some View {
         @Bindable var settings = settings
         Form {
-            Toggle("Launch at login", isOn: Binding(
-                get: { login.enabled },
-                set: { settings.launchAtLogin = $0; login.enabled = settings.launchAtLogin }
-            ))
-            Picker("Open the notch on", selection: $settings.openMode) {
-                ForEach(OpenMode.allCases) { Text($0.title).tag($0) }
+            Section("Startup") {
+                Toggle("Launch at login", isOn: Binding(
+                    get: { login.enabled },
+                    set: { settings.launchAtLogin = $0; login.enabled = settings.launchAtLogin }
+                ))
             }
-            .pickerStyle(.segmented)
-            DisplayPicker()
-            Toggle("Show agenda in the workspace", isOn: $settings.showsAgenda)
+            Section("Notch") {
+                Picker("Open the notch on", selection: $settings.openMode) {
+                    ForEach(OpenMode.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                DisplayPicker()
+                Toggle("Show agenda in the workspace", isOn: $settings.showsAgenda)
+            }
+            Section {
             Picker("Workday starts", selection: Binding(
                 get: { settings.workdayStart },
                 set: { settings.workdayStart = $0; if settings.workdayEnd <= $0 { settings.workdayEnd = min($0 + 60, 1440) } }
@@ -75,8 +189,12 @@ struct GeneralPage: View {
             Picker("Workday ends", selection: $settings.workdayEnd) {
                 ForEach(Array(stride(from: settings.workdayStart + 30, through: 1440, by: 30)), id: \.self) { Text(Self.clock($0)).tag($0) }
             }
-            Text("Plan my day only fills time inside your working hours.")
-                .font(.callout).foregroundStyle(.secondary)
+            } header: {
+                Text("Working hours")
+            } footer: {
+                Text("Plan my day only fills time inside your working hours.")
+                    .settingsFootnote()
+            }
         }
         .formStyle(.grouped)
         .onAppear { login.enabled = settings.launchAtLogin }
@@ -93,11 +211,16 @@ private struct AppearancePage: View {
     var body: some View {
         @Bindable var settings = settings
         Form {
-            Picker("Panel style", selection: $settings.panelStyle) {
-                ForEach(PanelStyle.allCases) { Text($0.title).tag($0) }
+            Section {
+                Picker("Panel style", selection: $settings.panelStyle) {
+                    ForEach(PanelStyle.allCases) { Text($0.title).tag($0) }
+                }
+            } header: {
+                Text("Panel")
+            } footer: {
+                Text("Liquid Glass needs macOS 26 or later. On earlier systems, or with Reduce Transparency on, Nook uses the solid style.")
+                    .settingsFootnote()
             }
-            Text("Liquid Glass needs macOS 26 or later. On earlier systems, or with Reduce Transparency on, Nook uses the solid style.")
-                .font(.callout).foregroundStyle(.secondary)
         }
         .formStyle(.grouped)
     }
@@ -109,13 +232,24 @@ private struct FocusPage: View {
     var body: some View {
         @Bindable var settings = settings
         Form {
-            Picker("Default preset", selection: $settings.focusPresetID) {
-                ForEach(FocusPreset.all) { Text("\($0.name) · \($0.focus)/\($0.shortBreak)").tag($0.id) }
+            Section("Timer") {
+                Picker("Default preset", selection: $settings.focusPresetID) {
+                    ForEach(FocusPreset.all) { Text("\($0.name) · \($0.focus)/\($0.shortBreak)").tag($0.id) }
+                }
+                Toggle("Auto-start breaks", isOn: $settings.autoStartBreaks)
             }
-            Toggle("Auto-start breaks", isOn: $settings.autoStartBreaks)
-            Toggle("Play sounds", isOn: $settings.playsSounds)
-            Toggle("Haptic feedback", isOn: $settings.haptics)
-            Toggle("Live activity in the notch", isOn: $settings.showsLiveActivity)
+            Section("Feedback") {
+                Toggle("Play sounds", isOn: $settings.playsSounds)
+                Toggle("Haptic feedback", isOn: $settings.haptics)
+            }
+            Section {
+                Toggle("Live activity in the notch", isOn: $settings.showsLiveActivity)
+            } header: {
+                Text("Notch")
+            } footer: {
+                Text("While a focus, block or event is live, the closed notch shows it beside the camera.")
+                    .settingsFootnote()
+            }
         }
         .formStyle(.grouped)
     }
@@ -128,16 +262,22 @@ private struct NotificationsPage: View {
     var body: some View {
         @Bindable var settings = settings
         Form {
-            Picker("Show macOS notifications", selection: $settings.systemNotifications) {
-                ForEach(SystemNotificationPolicy.allCases) { Text($0.title).tag($0) }
+            Section {
+                Picker("Show macOS notifications", selection: $settings.systemNotifications) {
+                    ForEach(SystemNotificationPolicy.allCases) { Text($0.title).tag($0) }
+                }
+            } header: {
+                Text("macOS notifications")
+            } footer: {
+                Text(settings.systemNotifications == .whenAway
+                    ? "Only when the notch can't be seen: screen locked, display asleep, another app full screen, or right after waking."
+                    : settings.systemNotifications == .always
+                        ? "Every alert also appears as a macOS notification."
+                        : "Alerts only appear in the notch.")
+                    .settingsFootnote()
             }
-            Text(settings.systemNotifications == .whenAway
-                ? "Only when the notch can't be seen: screen locked, display asleep, another app full screen, or right after waking."
-                : settings.systemNotifications == .always
-                    ? "Every alert also appears as a macOS notification."
-                    : "Alerts only appear in the notch.")
-                .font(.callout).foregroundStyle(.secondary)
-            LabeledContent("Permission") {
+            Section("Permission") {
+            LabeledContent("Status") {
                 switch notifier.authorization {
                 case .authorized: Label("Allowed", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
                 case .denied: Label("Blocked in System Settings", systemImage: "xmark.circle.fill").foregroundStyle(.red)
@@ -151,6 +291,7 @@ private struct NotificationsPage: View {
             case .authorized: EmptyView()
             }
             Button("Send test notification", action: notifier.sendTest)
+            }
         }
         .formStyle(.grouped)
         .onAppear { Task { await notifier.refreshAuthorization() } }
@@ -167,7 +308,8 @@ private struct CalendarPage: View {
     var body: some View {
         @Bindable var settings = settings
         Form {
-            LabeledContent("Access") {
+            Section("Access") {
+            LabeledContent("Calendar") {
                 switch agenda.access {
                 case .granted: Label("Connected", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
                 case .denied: Label("Denied", systemImage: "xmark.circle.fill").foregroundStyle(.red)
@@ -179,11 +321,17 @@ private struct CalendarPage: View {
             case .denied: Button("Open Privacy Settings", action: agenda.openPrivacySettings)
             case .granted: EmptyView()
             }
-            Picker("Alert before events", selection: $settings.eventAlertMinutes) {
-                ForEach([1, 5, 10, 15], id: \.self) { Text("\($0) min").tag($0) }
             }
-            Text("Nook only reads your calendar. It never creates or changes events.")
-                .font(.callout).foregroundStyle(.secondary)
+            Section {
+                Picker("Alert before events", selection: $settings.eventAlertMinutes) {
+                    ForEach([1, 5, 10, 15], id: \.self) { Text("\($0) min").tag($0) }
+                }
+            } header: {
+                Text("Alerts")
+            } footer: {
+                Text("Nook only reads your calendar. It never creates or changes events.")
+                    .settingsFootnote()
+            }
         }
         .formStyle(.grouped)
     }
@@ -195,8 +343,7 @@ private struct DataPage: View {
 
     var body: some View {
         Form {
-            Text("Tasks, notes and focus history live in a local JSON file. Nothing leaves your Mac.")
-                .font(.callout).foregroundStyle(.secondary)
+            Section {
             Button("Reveal planner.json in Finder") {
                 let url = PlannerStore.defaultURL
                 if FileManager.default.fileExists(atPath: url.path) {
@@ -206,7 +353,13 @@ private struct DataPage: View {
                 }
             }
             Button("Export JSON…", action: export)
-            if let message = status.text { Text(message).font(.callout).foregroundStyle(.secondary) }
+            if let message = status.text { Text(message).settingsFootnote() }
+            } header: {
+                Text("Your data")
+            } footer: {
+                Text("Tasks, notes and focus history live in a local JSON file. Nothing leaves your Mac. Daily backups are kept in the Backups folder next to it.")
+                    .settingsFootnote()
+            }
         }
         .formStyle(.grouped)
     }
@@ -346,7 +499,7 @@ struct KeyboardPage: View {
                 Text("Anywhere")
             } footer: {
                 Text("These work from any app, even when Nook is closed.")
-                    .font(.callout).foregroundStyle(.secondary)
+                    .settingsFootnote()
             }
             Section("While the panel is open") {
                 ForEach(PanelShortcuts.all, id: \.title) { item in
@@ -374,7 +527,7 @@ private struct DisplayPicker: View {
             Picker("Show Nook on", selection: $settings.displayChoice) {
                 Text(automaticTitle).tag(DisplayChoice.automatic)
                 Text("Main display (menu bar)").tag(DisplayChoice.main)
-                Text("Follow the mouse").tag(DisplayChoice.followMouse)
+                Text("Active display").tag(DisplayChoice.activeDisplay)
                 Divider()
                 ForEach(screens.items, id: \.id) { screen in
                     Text(title(for: screen)).tag(DisplayChoice.display(screen.id))
@@ -384,7 +537,7 @@ private struct DisplayPicker: View {
                 }
             }
             Text(footnote)
-                .font(.callout).foregroundStyle(.secondary)
+                .settingsFootnote()
         }
     }
 
@@ -402,7 +555,7 @@ private struct DisplayPicker: View {
     private var footnote: String {
         let shortcut = settings.shortcut(for: .moveHere).symbols
         switch settings.displayChoice {
-        case .followMouse: return "Nook moves to the display you're using whenever it's closed."
+        case .activeDisplay: return "Nook moves to the display you're working on (where you last clicked or switched apps) whenever it's closed."
         case .display(let id) where !screens.items.contains(where: { $0.id == id }):
             return "That display isn't connected, so Nook is on the automatic one until it comes back."
         default: return "Without a notch, Nook sits at the top center, under the menu bar. \(shortcut) moves it to the display under the mouse."
