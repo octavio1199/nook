@@ -11,9 +11,10 @@ final class NotchInteraction {
 
     private(set) var peekAlert: NotchAlert?
     private(set) var area: PanelArea = .workspace
-    /// Day tab: 0 = today, 1 = tomorrow.
+    /// Day tab: 0 = today, 1 = tomorrow, negative = past days (logging time that wasn't tracked).
     private(set) var dayOffset = 0
     static let maxDayOffset = 1
+    static let minDayOffset = -60
     /// Bumped whenever the capture field should take keyboard focus.
     private(set) var captureRequest = 0
     /// While pinned, the open panel ignores pointer exits and outside clicks.
@@ -71,6 +72,41 @@ final class NotchInteraction {
         self.geometry = geometry
         self.clock = clock
         observeDecision()
+        focusWasActive = focus.isActive
+        observeFocusActivity()
+    }
+
+    /// Tab shown before a focus switched to the Focus tab by itself; restored when the focus ends.
+    @ObservationIgnored private var areaBeforeFocus: PanelArea?
+    @ObservationIgnored private var focusWasActive = false
+
+    /// Re-arms itself after each change of the focus phase (observation fires once).
+    private func observeFocusActivity() {
+        withObservationTracking {
+            _ = focus.phase
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                focusActivityChanged()
+                observeFocusActivity()
+            }
+        }
+    }
+
+    /// A focus starting (from anywhere) brings up the Focus tab; ending it goes back, unless the
+    /// user moved to another tab meanwhile.
+    func focusActivityChanged() {
+        let active = focus.isActive
+        defer { focusWasActive = active }
+        guard active != focusWasActive, settings.autoShowsFocusTab else { return }
+        if active {
+            guard area != .focus else { return }
+            areaBeforeFocus = area
+            withAnimation(Motion.navigate) { area = .focus }
+        } else if let previous = areaBeforeFocus {
+            areaBeforeFocus = nil
+            if area == .focus { withAnimation(Motion.navigate) { area = previous } }
+        }
     }
 
     /// Re-arms itself after each change of `focus.awaitingDecision` (observation fires once).
@@ -279,10 +315,10 @@ final class NotchInteraction {
         }
     }
 
-    /// Global "start focus": opens the workspace with keyboard focus, for the focus picker.
+    /// Global "start focus": opens the Focus tab with keyboard focus, for its task picker.
     func openForFocusPicker() {
         if state != .open { open() }
-        show(.workspace)
+        show(.focus)
         onNeedsKeyFocus?()
     }
 
@@ -315,11 +351,13 @@ final class NotchInteraction {
 
     func show(_ area: PanelArea) {
         guard area != self.area else { return }
+        // Picking a tab by hand cancels the "go back after the focus" plan.
+        areaBeforeFocus = nil
         withAnimation(Motion.navigate) { self.area = area }
     }
 
     func shiftDay(by delta: Int) {
-        let next = min(max(dayOffset + delta, 0), Self.maxDayOffset)
+        let next = min(max(dayOffset + delta, Self.minDayOffset), Self.maxDayOffset)
         guard next != dayOffset else { return }
         withAnimation(Motion.navigate) { dayOffset = next }
     }
@@ -417,8 +455,10 @@ final class NotchInteraction {
         case (_, true, "1"):
             show(.workspace)
         case (_, true, "2"):
-            show(.day)
+            show(.focus)
         case (_, true, "3"):
+            show(.day)
+        case (_, true, "4"):
             show(.insights)
         case (123, false, _) where area == .day && event.modifierFlags.intersection([.shift, .option, .control]).isEmpty:
             shiftDay(by: -1)

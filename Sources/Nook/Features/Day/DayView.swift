@@ -28,9 +28,17 @@ struct DayView: View {
         let day = calendar.date(byAdding: .day, value: notch.dayOffset, to: calendar.startOfDay(for: now)) ?? now
         let dp = blocks.dayPlanner
         let unscheduled = planner.todayTasks(now: day).filter { dp.needsBlock($0, now: now) }
-        let scheduled = planner.scheduledTasks(on: day)
+        let past = notch.dayOffset < 0
+        let scheduled = past ? [] : planner.scheduledTasks(on: day)
+        let sessions = past ? planner.sessions(on: day) : []
 
         return HStack(alignment: .top, spacing: 10) {
+            if past {
+                Card("Log time", symbol: "clock.arrow.circlepath") {
+                    PastDayList(day: day, sessions: sessions)
+                }
+                .frame(width: 236)
+            } else {
             Card("Unscheduled", symbol: "tray", trailing: AnyView(countBadge(unscheduled.count))) {
                 VStack(spacing: 8) {
                     UnscheduledList(tasks: unscheduled, preview: preview ?? [])
@@ -44,12 +52,15 @@ struct DayView: View {
                 }
             }
             .frame(width: 236)
+            }
 
-            Card(title(for: day), symbol: "calendar.day.timeline.left", trailing: AnyView(DayNav(summary: summary(scheduled)))) {
+            Card(title(for: day), symbol: past ? "clock.arrow.circlepath" : "calendar.day.timeline.left",
+                 trailing: AnyView(DayNav(summary: past ? loggedSummary(sessions) : summary(scheduled)))) {
                 DayTimeline(
                     day: day, now: now,
-                    events: agenda.access == .granted ? agenda.events : [],
-                    tasks: scheduled, preview: preview ?? [], dayPlanner: dp
+                    events: agenda.access == .granted && !past ? agenda.events : [],
+                    tasks: scheduled, preview: preview ?? [], dayPlanner: dp,
+                    sessions: sessions, logging: past
                 )
             }
         }
@@ -58,7 +69,12 @@ struct DayView: View {
     }
 
     private func title(for day: Date) -> String {
-        let name = notch.dayOffset == 0 ? "Today" : notch.dayOffset == 1 ? "Tomorrow" : day.formatted(.dateTime.weekday(.wide))
+        let name = switch notch.dayOffset {
+        case 0: "Today"
+        case 1: "Tomorrow"
+        case -1: "Yesterday"
+        default: day.formatted(.dateTime.weekday(.wide))
+        }
         return "\(name) · \(day.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated)))"
     }
 
@@ -66,6 +82,12 @@ struct DayView: View {
         guard !scheduled.isEmpty else { return nil }
         let minutes = scheduled.reduce(0) { $0 + DayPlanner.minutes(for: $1) }
         return "\(TaskTime.text(TimeInterval(minutes * 60))) planned"
+    }
+
+    private func loggedSummary(_ sessions: [FocusSession]) -> String? {
+        let total = sessions.reduce(0) { $0 + $1.duration }
+        guard total >= 60 else { return nil }
+        return TaskTime.text(total)
     }
 
     private func countBadge(_ count: Int) -> some View {
@@ -102,10 +124,31 @@ private struct DayNav: View {
 
     var body: some View {
         HStack(spacing: 6) {
+            if notch.dayOffset < 0 {
+                Label("Logging past day", systemImage: "pencil")
+                    .font(Typography.micro)
+                    .foregroundStyle(Color.accent)
+                    .padding(.horizontal, 7)
+                    .frame(height: 20)
+                    .background(Capsule().fill(Color.accent.opacity(0.14)))
+                    .fixedSize()
+            }
             if let summary {
                 Text(summary).font(Typography.micro).foregroundStyle(Color.textTertiary)
             }
-            button("chevron.left", enabled: notch.dayOffset > 0, help: "Previous day (←)") { notch.shiftDay(by: -1) }
+            if notch.dayOffset != 0 {
+                Button { notch.shiftDay(by: -notch.dayOffset) } label: {
+                    Text("Today")
+                        .font(Typography.micro)
+                        .foregroundStyle(Color.textPrimary)
+                        .padding(.horizontal, 8)
+                        .frame(height: 20)
+                        .background(Capsule().fill(Color.surfaceRaised))
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+            }
+            button("chevron.left", enabled: notch.dayOffset > NotchInteraction.minDayOffset, help: "Previous day (←)") { notch.shiftDay(by: -1) }
             button("chevron.right", enabled: notch.dayOffset < NotchInteraction.maxDayOffset, help: "Next day (→)") { notch.shiftDay(by: 1) }
         }
     }
@@ -271,5 +314,72 @@ private struct PlanControls: View {
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Past days
+
+/// Tasks you can log time against on a past day: what was done that day, then what's still open.
+enum PastDay {
+    static func candidates(tasks: [TaskItem], day: Date, calendar: Calendar = .current) -> [TaskItem] {
+        let doneThatDay = tasks.filter { task in
+            task.done && task.archivedAt == nil && task.completedAt.map { calendar.isDate($0, inSameDayAs: day) } == true
+        }
+        let open = tasks.filter(\.isOpen).sorted { $0.order < $1.order }
+        return doneThatDay + open
+    }
+
+    /// Focus logged against each task that day (timer and manual), for the list.
+    static func minutes(on sessions: [FocusSession]) -> [UUID: TimeInterval] {
+        sessions.reduce(into: [:]) { totals, session in
+            guard let id = session.taskID else { return }
+            totals[id, default: 0] += session.duration
+        }
+    }
+}
+
+private struct PastDayList: View {
+    let day: Date
+    let sessions: [FocusSession]
+    @Environment(PlannerStore.self) private var planner
+
+    var body: some View {
+        let tasks = PastDay.candidates(tasks: planner.tasks, day: day)
+        let logged = PastDay.minutes(on: sessions)
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Drag a task onto the timeline to log time you didn't track.")
+                .font(Typography.micro)
+                .foregroundStyle(Color.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 5) {
+                    ForEach(tasks) { task in
+                        HStack(spacing: 7) {
+                            Image(systemName: task.done ? "checkmark.circle.fill" : "circle")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(task.done ? Color.rest : DayPalette.tint(task.priority))
+                            Text(task.title)
+                                .font(Typography.caption)
+                                .foregroundStyle(task.done ? Color.textSecondary : Color.textPrimary)
+                                .lineLimit(1)
+                            Spacer(minLength: 4)
+                            if let time = logged[task.id], time >= 60 {
+                                Text(TaskTime.text(time)).font(Typography.micro).monospacedDigit().foregroundStyle(Color.focus)
+                            }
+                        }
+                        .padding(.horizontal, 8)
+                        .frame(height: 30)
+                        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.surface))
+                        .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .draggable(task.id.uuidString) {
+                            Text(task.title).font(Typography.caption).foregroundStyle(.white)
+                                .padding(.horizontal, 10).padding(.vertical, 5)
+                                .background(Capsule().fill(Color.focus.opacity(0.9)))
+                        }
+                        .help("Drag onto the timeline to log time")
+                    }
+                }
+            }
+        }
     }
 }

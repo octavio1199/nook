@@ -88,7 +88,15 @@ struct FocusPickerOverlay: View {
                     .contentShape(Rectangle())
                     .onTapGesture { workspace.closeFocusPicker() }
                     .transition(.opacity)
-                FocusPickerCard()
+                FocusPickerContent(title: nil)
+                    .padding(14)
+                    .frame(width: 400, height: 320)
+                    .background(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .fill(LinearGradient(colors: [Color(white: 0.145), Color(white: 0.105)], startPoint: .top, endPoint: .bottom))
+                    )
+                    .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Color.white.opacity(0.13)))
+                    .shadow(color: .black.opacity(0.6), radius: 28, y: 12)
                     .transition(.opacity.combined(with: .scale(scale: 0.96)))
             }
         }
@@ -96,7 +104,10 @@ struct FocusPickerOverlay: View {
     }
 }
 
-private struct FocusPickerCard: View {
+/// Search field, task list and key hints. Used by the overlay and by the Focus tab's empty state.
+struct FocusPickerContent: View {
+    /// Overrides the "Start a focus" / "Switch focus to…" heading.
+    var title: String?
     @Environment(PlannerStore.self) private var planner
     @Environment(FocusTimer.self) private var focus
     @Environment(AppSettings.self) private var settings
@@ -109,7 +120,7 @@ private struct FocusPickerCard: View {
         return VStack(alignment: .leading, spacing: 9) {
             HStack(spacing: 6) {
                 Image(systemName: "scope").font(.system(size: 11, weight: .semibold)).foregroundStyle(Color.focus)
-                Text(focus.isActive ? "Switch focus to…" : "Start a focus").font(Typography.title).foregroundStyle(Color.textPrimary)
+                Text(title ?? (focus.isActive ? "Switch focus to…" : "Start a focus")).font(Typography.title).foregroundStyle(Color.textPrimary)
                 Spacer(minLength: 0)
                 Text(preset.name).font(Typography.micro).foregroundStyle(Color.textTertiary)
             }
@@ -159,14 +170,6 @@ private struct FocusPickerCard: View {
                 Spacer(minLength: 0)
             }
         }
-        .padding(14)
-        .frame(width: 400, height: 320)
-        .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(LinearGradient(colors: [Color(white: 0.145), Color(white: 0.105)], startPoint: .top, endPoint: .bottom))
-        )
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Color.white.opacity(0.13)))
-        .shadow(color: .black.opacity(0.6), radius: 28, y: 12)
         .onAppear { DispatchQueue.main.async { searchFocused = true } }
     }
 

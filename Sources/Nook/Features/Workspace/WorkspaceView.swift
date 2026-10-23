@@ -4,9 +4,7 @@ import SwiftUI
 struct WorkspaceView: View {
     @Environment(AppSettings.self) private var settings
     @Environment(WorkspaceState.self) private var workspace
-    @Environment(NotchInteraction.self) private var notch
-    @Environment(PlannerStore.self) private var planner
-    @Environment(FocusTimer.self) private var focus
+    @Environment(AgendaModel.self) private var agenda
 
     static let spacing: CGFloat = 10
     static let sideWidth: CGFloat = 230
@@ -23,7 +21,8 @@ struct WorkspaceView: View {
                 NotesColumn()
                     .frame(maxWidth: .infinity)
                 VStack(spacing: Self.spacing) {
-                    if settings.showsAgenda { AgendaCard() }
+                    // Not connected, the card would only be a "Connect Calendar" prompt (that lives in Settings).
+                    if settings.showsAgenda, agenda.access == .granted { AgendaCard() }
                     FocusCard()
                 }
                 .frame(width: Self.sideWidth)
@@ -31,17 +30,6 @@ struct WorkspaceView: View {
             }
         }
         .overlay { TaskComposerOverlay() }
-        .overlay { FocusPickerOverlay() }
-        .onAppear {
-            notch.onEscape = { [workspace] in workspace.dismissOverlayIfOpen() }
-            notch.keyInterceptor = { [workspace, planner, focus, settings] event in
-                PanelOverlayKeys.handle(event, workspace: workspace, planner: planner, focus: focus, settings: settings)
-            }
-        }
-        .onDisappear {
-            notch.onEscape = nil
-            notch.keyInterceptor = nil
-        }
     }
 }
 

@@ -91,7 +91,7 @@ nonisolated enum GlobalAction: String, CaseIterable, Identifiable, Codable {
 /// Fixed keys while the panel is open, listed in Settings.
 enum PanelShortcuts {
     static let all: [(keys: String, title: String)] = [
-        ("⌘1  ⌘2  ⌘3", "Workspace / Day / Insights"),
+        ("⌘1  ⌘2  ⌘3  ⌘4", "Workspace / Focus / Day / Insights"),
         ("⌘N", "New task"),
         ("⇥  ⇧⇥", "Next / previous field in the new-task card"),
         ("↩  ⌥↩", "Add the task / add and start focusing"),

@@ -453,7 +453,7 @@ private struct BreakButton: View {
     }
 }
 
-private struct RoundButton: View {
+struct RoundButton: View {
     var symbol: String?
     var text: String?
     var tint: Color = .white

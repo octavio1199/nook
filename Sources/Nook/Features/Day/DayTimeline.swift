@@ -3,6 +3,7 @@ import SwiftUI
 
 /// Vertical hour grid for one day: calendar events (read-only), task blocks (drag to move, drag the
 /// bottom edge to resize), a plan preview and the "now" line. Drop an unscheduled task to place it.
+/// On a past day (`logging`) it shows the focus sessions instead; dropping a task logs time.
 struct DayTimeline: View {
     let day: Date
     let now: Date
@@ -10,6 +11,8 @@ struct DayTimeline: View {
     let tasks: [TaskItem]
     let preview: [DayPlanner.PlannedBlock]
     let dayPlanner: DayPlanner
+    var sessions: [FocusSession] = []
+    var logging = false
 
     @Environment(PlannerStore.self) private var planner
     @LocalState private var targeted = false
@@ -25,6 +28,7 @@ struct DayTimeline: View {
         enum Kind {
             case event(AgendaEvent)
             case task(TaskItem)
+            case session(FocusSession)
         }
         var id: String
         var kind: Kind
@@ -41,6 +45,9 @@ struct DayTimeline: View {
         for task in tasks {
             guard let start = task.scheduledStart, let end = DayPlanner.end(of: task) else { continue }
             result.append(Entry(id: "task-" + task.id.uuidString, kind: .task(task), start: start, end: end))
+        }
+        for session in sessions {
+            result.append(Entry(id: "session-" + session.id.uuidString, kind: .session(session), start: max(session.start, dayStart), end: min(session.end, dayEnd)))
         }
         return result
     }
@@ -88,6 +95,9 @@ struct DayTimeline: View {
                                     warn: overlapping.contains(entry.id), isCurrent: task.id == current, dayPlanner: dayPlanner
                                 )
                                 .offset(x: x, y: y)
+                            case .session(let session):
+                                SessionBlock(session: session, y: y, width: width - 2, geometry: geometry, maxY: total, dayPlanner: dayPlanner)
+                                    .offset(x: x, y: y)
                             }
                         }
                         ForEach(preview) { block in
@@ -114,6 +124,13 @@ struct DayTimeline: View {
             // A new day starts from its own scroll position.
             .id(dayStart)
         }
+        // A past day reads as "editing history": muted, with a warm tint.
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.accent.opacity(logging ? 0.05 : 0))
+                .allowsHitTesting(false)
+        )
+        .saturation(logging ? 0.85 : 1)
         .overlay(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .strokeBorder(Color.accent.opacity(targeted ? 0.7 : 0), lineWidth: 1.5)
@@ -173,7 +190,15 @@ struct DayTimeline: View {
     }
 
     private func drop(_ items: [String], at location: CGPoint, geometry: Geometry, range: Range<Int>) -> Bool {
-        guard let raw = items.first, let id = UUID(uuidString: raw), let task = planner.task(id), task.isOpen else { return false }
+        guard let raw = items.first, let id = UUID(uuidString: raw), let task = planner.task(id) else { return false }
+        if logging {
+            // Untracked time: a manual session for the task at the drop point, as long as its estimate.
+            let start = dayPlanner.snapped(geometry.date(atY: location.y))
+            let minutes = task.estimateMinutes ?? DayPlanner.defaultMinutes
+            withAnimation(Motion.navigate) { _ = planner.logManual(taskID: task.id, label: task.title, start: start, minutes: minutes) }
+            return true
+        }
+        guard task.isOpen else { return false }
         let lower = dayStart.addingTimeInterval(TimeInterval(range.lowerBound * 3600))
         let raw0 = geometry.date(atY: location.y)
         let start = min(max(dayPlanner.snapped(raw0), lower), dayStart.addingTimeInterval(TimeInterval(range.upperBound * 3600 - 900)))
@@ -417,5 +442,142 @@ private struct NowLine: View {
             Circle().fill(Color.red).frame(width: 7, height: 7)
             Rectangle().fill(Color.red).frame(height: 1.5)
         }
+    }
+}
+
+/// A focus session on a past day. Timer sessions are read-only; manual logs move, resize and delete
+/// like task blocks (15 min steps), and can mark the task done at their end.
+private struct SessionBlock: View {
+    let session: FocusSession
+    let y: CGFloat
+    let width: CGFloat
+    let geometry: DayTimeline.Geometry
+    let maxY: CGFloat
+    let dayPlanner: DayPlanner
+
+    @Environment(PlannerStore.self) private var planner
+    @LocalState private var moveY: CGFloat = 0
+    @LocalState private var resizeY: CGFloat = 0
+    @LocalState private var moving = false
+    @LocalState private var resizing = false
+
+    private var minutes: Int { max(Int((session.duration / 60).rounded()), 5) }
+
+    private var liveMinutes: Int {
+        guard resizing else { return minutes }
+        let raw = Double(minutes) + Double(resizeY / geometry.hourHeight) * 60
+        return max(Int((raw / 15).rounded()) * 15, 15)
+    }
+
+    private var liveStart: Date {
+        guard moving else { return session.start }
+        let raw = session.start.addingTimeInterval(TimeInterval(moveY / geometry.hourHeight) * 3600)
+        let top = geometry.origin
+        let bottom = geometry.date(atY: maxY - 6).addingTimeInterval(-TimeInterval(liveMinutes * 60))
+        return min(max(dayPlanner.snapped(raw), top), max(bottom, top))
+    }
+
+    private var height: CGFloat { max(CGFloat(liveMinutes) / 60 * geometry.hourHeight, 16) }
+
+    var body: some View {
+        let task = planner.task(session.taskID)
+        let tint: Color = session.manual ? .accent : .focus
+        let active = moving || resizing
+        let format = Date.FormatStyle.dateTime.hour().minute()
+        HStack(alignment: .top, spacing: 5) {
+            Image(systemName: session.manual ? "pencil" : "timer")
+                .font(.system(size: 8, weight: .bold))
+                .foregroundStyle(tint)
+                .padding(.top, height < 30 ? 0 : 2)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(task?.title ?? session.label ?? "Focus")
+                    .font(Typography.caption)
+                    .foregroundStyle(Color.textPrimary)
+                    .lineLimit(1)
+                if height >= 30 {
+                    let start = liveStart
+                    Text("\(start.formatted(format)) – \(start.addingTimeInterval(TimeInterval(liveMinutes * 60)).formatted(format)) · \(TaskTime.text(TimeInterval(liveMinutes * 60)))\(session.manual ? " · logged" : " · tracked")")
+                        .font(Typography.micro).monospacedDigit()
+                        .foregroundStyle(Color.textSecondary)
+                        .lineLimit(1)
+                }
+            }
+            Spacer(minLength: 0)
+            if task?.done == true {
+                Image(systemName: "checkmark.circle.fill").font(.system(size: 9)).foregroundStyle(Color.rest)
+            }
+        }
+        .padding(.horizontal, 7)
+        .frame(width: width, height: height, alignment: height < 30 ? .leading : .topLeading)
+        .background(
+            ZStack {
+                RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color(white: 0.09))
+                RoundedRectangle(cornerRadius: 6, style: .continuous).fill(tint.opacity(active ? 0.4 : 0.22))
+            }
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .strokeBorder(tint.opacity(active ? 0.9 : 0.45), style: StrokeStyle(lineWidth: 1, dash: session.manual ? [4, 3] : []))
+        )
+        .overlay(alignment: .bottom) { if session.manual { resizeHandle } }
+        .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .offset(y: moving ? geometry.y(liveStart) - y : 0)
+        .zIndex(active ? 10 : 0)
+        .gesture(session.manual ? moveGesture : nil)
+        .contextMenu {
+            if session.manual {
+                if let task, !task.done {
+                    Button("Mark task done at \(session.end.formatted(format))") {
+                        withAnimation(Motion.navigate) { planner.complete(task.id, at: session.end) }
+                    }
+                }
+                Button("Delete logged time") { withAnimation(Motion.navigate) { planner.deleteManualSession(session.id) } }
+            } else {
+                Text("Tracked by the timer")
+            }
+        }
+        .help(session.manual ? "Logged by hand: drag to move, drag the bottom edge to resize, right-click for more" : "Tracked by the timer")
+    }
+
+    private var moveGesture: some Gesture {
+        DragGesture(minimumDistance: 3, coordinateSpace: .global)
+            .onChanged { value in
+                moving = true
+                moveY = value.translation.height
+            }
+            .onEnded { value in
+                moveY = value.translation.height
+                let target = liveStart
+                withAnimation(Motion.navigate) {
+                    if target != session.start { planner.updateManualSession(session.id, start: target, minutes: minutes) }
+                    moving = false
+                    moveY = 0
+                }
+            }
+    }
+
+    private var resizeHandle: some View {
+        Color.clear
+            .frame(height: 8)
+            .contentShape(Rectangle())
+            .onHover { inside in
+                if inside { NSCursor.resizeUpDown.push() } else { NSCursor.pop() }
+            }
+            .highPriorityGesture(
+                DragGesture(minimumDistance: 2, coordinateSpace: .global)
+                    .onChanged { value in
+                        resizing = true
+                        resizeY = value.translation.height
+                    }
+                    .onEnded { value in
+                        resizeY = value.translation.height
+                        let target = liveMinutes
+                        withAnimation(Motion.navigate) {
+                            if target != minutes { planner.updateManualSession(session.id, start: session.start, minutes: target) }
+                            resizing = false
+                            resizeY = 0
+                        }
+                    }
+            )
     }
 }

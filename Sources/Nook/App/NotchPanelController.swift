@@ -131,7 +131,8 @@ final class NotchPanelController {
             return
         }
         notch.openForFocusPicker()
-        app.workspace.openFocusPicker()
+        // The Focus tab has a picker of its own unless a task focus is running; then switch with the overlay.
+        if app.focus.isActive, app.focus.taskID != nil { app.workspace.openFocusPicker() }
         becomeKey()
     }
 

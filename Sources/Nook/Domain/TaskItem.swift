@@ -1,5 +1,12 @@
 import Foundation
 
+/// A checklist step inside a task (Focus tab, task detail).
+struct Subtask: Identifiable, Codable, Equatable, Hashable {
+    var id = UUID()
+    var title: String
+    var done = false
+}
+
 struct TaskItem: Identifiable, Codable, Equatable, Hashable {
     enum Priority: Int, Codable, CaseIterable, Comparable {
         case none, low, medium, high
@@ -40,10 +47,16 @@ struct TaskItem: Identifiable, Codable, Equatable, Hashable {
     var estimateMinutes: Int?
     /// Start of the time block planned for this task (time blocking); its length is the estimate.
     var scheduledStart: Date?
+    var subtasks: [Subtask] = []
 }
 
 extension TaskItem {
     var isOpen: Bool { !done && archivedAt == nil }
+
+    /// Done and total sub-tasks, nil without any.
+    var subtaskProgress: (done: Int, total: Int)? {
+        subtasks.isEmpty ? nil : (subtasks.filter(\.done).count, subtasks.count)
+    }
 
     func isDue(onOrBefore day: Date, calendar: Calendar = .current) -> Bool {
         guard let due else { return true }
@@ -76,5 +89,6 @@ extension TaskItem {
         archivedAt = try? c.decodeIfPresent(Date.self, forKey: .archivedAt)
         estimateMinutes = try? c.decodeIfPresent(Int.self, forKey: .estimateMinutes)
         scheduledStart = try? c.decodeIfPresent(Date.self, forKey: .scheduledStart)
+        subtasks = (try? c.decodeIfPresent([Subtask].self, forKey: .subtasks)) ?? []
     }
 }

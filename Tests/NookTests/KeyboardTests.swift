@@ -375,11 +375,11 @@ import Testing
         #expect(!notch.isPinned)
     }
 
-    @Test func focusPickerOpensOnTheWorkspace() {
+    @Test func focusPickerOpensTheFocusTab() {
         let notch = makeNotch()
         notch.show(.insights)
         notch.openForFocusPicker()
         #expect(notch.state == .open)
-        #expect(notch.area == .workspace)
+        #expect(notch.area == .focus)
     }
 }

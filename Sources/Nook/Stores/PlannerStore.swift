@@ -329,6 +329,110 @@ final class PlannerStore {
         scheduleSave()
     }
 
+    // MARK: - Manual focus logs (Day tab, past days)
+
+    func sessions(on day: Date, calendar: Calendar = .current) -> [FocusSession] {
+        let start = calendar.startOfDay(for: day)
+        guard let end = calendar.date(byAdding: .day, value: 1, to: start) else { return [] }
+        return data.sessions.filter { $0.end > start && $0.start < end }.sorted { $0.start < $1.start }
+    }
+
+    /// Time that wasn't tracked, added by hand. Undoable.
+    @discardableResult
+    func logManual(taskID: TaskItem.ID?, label: String?, start: Date, minutes: Int) -> FocusSession {
+        let session = FocusSession(start: start, duration: TimeInterval(max(minutes, 5) * 60), label: label, taskID: taskID, manual: true)
+        mutateManualSessions("Log Time") { $0.append(session) }
+        return session
+    }
+
+    func updateManualSession(_ id: FocusSession.ID, start: Date, minutes: Int) {
+        mutateManualSessions("Change Logged Time") { sessions in
+            guard let index = sessions.firstIndex(where: { $0.id == id && $0.manual }) else { return }
+            sessions[index].start = start
+            sessions[index].duration = TimeInterval(max(minutes, 5) * 60)
+        }
+    }
+
+    func deleteManualSession(_ id: FocusSession.ID) {
+        mutateManualSessions("Delete Logged Time") { $0.removeAll { $0.id == id && $0.manual } }
+    }
+
+    /// Marks a task done at a given moment (the end of a logged block), not now.
+    func complete(_ id: TaskItem.ID, at date: Date) {
+        guard let index = data.tasks.firstIndex(where: { $0.id == id }) else { return }
+        mutate("Mark Done") { data in
+            data.tasks[index].done = true
+            data.tasks[index].completedAt = date
+        }
+    }
+
+    /// Undo for hand-made logs snapshots only the manual sessions, so ⌘Z never drops time a timer
+    /// logged in between.
+    private func mutateManualSessions(_ action: String, _ body: (inout [FocusSession]) -> Void) {
+        let before = data.sessions.filter(\.manual)
+        body(&data.sessions)
+        registerManualUndo(restoring: before, action: action)
+        scheduleSave()
+    }
+
+    private func registerManualUndo(restoring manual: [FocusSession], action: String) {
+        undoManager.registerUndo(withTarget: self) { store in
+            MainActor.assumeIsolated {
+                let current = store.data.sessions.filter(\.manual)
+                store.data.sessions = store.data.sessions.filter { !$0.manual } + manual
+                store.scheduleSave()
+                store.registerManualUndo(restoring: current, action: action)
+            }
+        }
+        undoManager.setActionName(action)
+    }
+
+    // MARK: - Sub-tasks
+
+    func addSubtask(_ title: String, to id: TaskItem.ID) {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let index = data.tasks.firstIndex(where: { $0.id == id }) else { return }
+        mutate("Add Sub-task") { $0.tasks[index].subtasks.append(Subtask(title: trimmed)) }
+    }
+
+    func toggleSubtask(_ subtask: Subtask.ID, in id: TaskItem.ID) {
+        editSubtasks(of: id, action: "Check Sub-task") { list in
+            guard let i = list.firstIndex(where: { $0.id == subtask }) else { return }
+            list[i].done.toggle()
+        }
+    }
+
+    func renameSubtask(_ subtask: Subtask.ID, in id: TaskItem.ID, to title: String) {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        editSubtasks(of: id, action: "Rename Sub-task") { list in
+            guard let i = list.firstIndex(where: { $0.id == subtask }), list[i].title != trimmed else { return }
+            list[i].title = trimmed
+        }
+    }
+
+    func deleteSubtask(_ subtask: Subtask.ID, in id: TaskItem.ID) {
+        editSubtasks(of: id, action: "Delete Sub-task") { $0.removeAll { $0.id == subtask } }
+    }
+
+    /// Moves a sub-task one step up (-1) or down (+1).
+    func moveSubtask(_ subtask: Subtask.ID, in id: TaskItem.ID, by offset: Int) {
+        editSubtasks(of: id, action: "Move Sub-task") { list in
+            guard let i = list.firstIndex(where: { $0.id == subtask }) else { return }
+            let j = i + offset
+            guard list.indices.contains(j) else { return }
+            list.swapAt(i, j)
+        }
+    }
+
+    private func editSubtasks(of id: TaskItem.ID, action: String, _ body: (inout [Subtask]) -> Void) {
+        guard let index = data.tasks.firstIndex(where: { $0.id == id }) else { return }
+        var list = data.tasks[index].subtasks
+        body(&list)
+        guard list != data.tasks[index].subtasks else { return }
+        mutate(action) { $0.tasks[index].subtasks = list }
+    }
+
     // MARK: - Persistence
 
     func exportJSON() throws -> Data {

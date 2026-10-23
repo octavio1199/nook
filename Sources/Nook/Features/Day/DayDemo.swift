@@ -53,6 +53,21 @@ enum DayDemo {
                 schedule("Design review", at(14), minutes: 45)
             }
             app.notch.show(.day)
+        case "past":
+            // Yesterday: one session the timer tracked, one logged by hand, a task done that day.
+            let yesterday = cal.date(byAdding: .day, value: -1, to: today) ?? today
+            func y(_ hour: Int, _ minute: Int = 0) -> Date { yesterday.addingTimeInterval(TimeInterval(hour * 3600 + minute * 60)) }
+            if let review = app.planner.tasks.first(where: { $0.title == "Review Pullo PR" }) {
+                app.planner.log(FocusSession(start: y(9, 30), duration: 50 * 60, label: review.title, taskID: review.id))
+            }
+            if let notes = app.planner.tasks.first(where: { $0.title.hasPrefix("write release notes") }) {
+                app.planner.logManual(taskID: notes.id, label: notes.title, start: y(11), minutes: 90)
+            }
+            if let launch = app.planner.tasks.first(where: { $0.title == "Draft launch post" }) {
+                app.planner.logManual(taskID: launch.id, label: launch.title, start: y(14), minutes: 45)
+            }
+            app.notch.show(.day)
+            app.notch.shiftDay(by: -1)
         case "night":
             schedule("Draft launch post", at(21, 30), minutes: 60)
             schedule("Review Pullo PR", at(23), minutes: 45)

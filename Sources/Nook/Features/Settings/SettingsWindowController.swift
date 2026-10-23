@@ -237,6 +237,7 @@ private struct FocusPage: View {
                     ForEach(FocusPreset.all) { Text("\($0.name) · \($0.focus)/\($0.shortBreak)").tag($0.id) }
                 }
                 Toggle("Auto-start breaks", isOn: $settings.autoStartBreaks)
+                Toggle("Switch to the Focus tab when a focus starts", isOn: $settings.autoShowsFocusTab)
             }
             Section("Feedback") {
                 Toggle("Play sounds", isOn: $settings.playsSounds)

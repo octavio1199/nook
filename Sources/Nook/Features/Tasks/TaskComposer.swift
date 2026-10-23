@@ -545,7 +545,7 @@ extension ComposerKey {
         case 124 where !command: self = .right
         case 125 where !command: self = .down
         case 126 where !command: self = .up
-        case 51, 117 where !command: self = .delete
+        case 51 where !command, 117 where !command: self = .delete
         case 49 where !command: self = .space
         default:
             guard !command, !flags.contains(.control), let c = event.charactersIgnoringModifiers?.first else { return nil }
@@ -556,7 +556,7 @@ extension ComposerKey {
 
 /// Routes keys to whichever overlay is up (installed by `WorkspaceView` as the panel's key interceptor).
 enum PanelOverlayKeys {
-    static func handle(_ event: NSEvent, workspace: WorkspaceState, planner: PlannerStore, focus: FocusTimer, settings: AppSettings) -> Bool {
+    static func handle(_ event: NSEvent, workspace: WorkspaceState, planner: PlannerStore, focus: FocusTimer, settings: AppSettings, inlinePicker: Bool = false) -> Bool {
         if workspace.isComposerOpen {
             guard let key = ComposerKey(event: event) else { return false }
             var draft = workspace.composer
@@ -572,7 +572,7 @@ enum PanelOverlayKeys {
                 return true
             }
         }
-        if workspace.isFocusPickerOpen {
+        if workspace.isFocusPickerOpen || inlinePicker {
             return FocusPicker.handle(event, workspace: workspace, planner: planner, focus: focus, settings: settings)
         }
         return false

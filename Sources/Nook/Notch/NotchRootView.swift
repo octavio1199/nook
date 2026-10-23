@@ -90,11 +90,16 @@ struct AreaSwitcher: View {
 
 struct ExpandedView: View {
     @Environment(NotchInteraction.self) private var notch
+    @Environment(WorkspaceState.self) private var workspace
+    @Environment(PlannerStore.self) private var planner
+    @Environment(FocusTimer.self) private var focus
+    @Environment(AppSettings.self) private var settings
 
     var body: some View {
         Group {
             switch notch.area {
             case .workspace: WorkspaceView()
+            case .focus: FocusTabView()
             case .day: DayView()
             case .insights: InsightsView()
             }
@@ -103,5 +108,19 @@ struct ExpandedView: View {
         .padding(.top, 2)
         .padding(.bottom, 14)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .overlay { FocusPickerOverlay() }
+        .onAppear {
+            notch.onEscape = { [workspace] in workspace.dismissOverlayIfOpen() }
+            notch.keyInterceptor = { [workspace, planner, focus, settings, notch] event in
+                // The Focus tab's built-in picker (no focus yet, or one without a task).
+                let inlinePicker = notch.area == .focus && (!focus.isActive || focus.taskID == nil)
+                return PanelOverlayKeys.handle(event, workspace: workspace, planner: planner, focus: focus, settings: settings, inlinePicker: inlinePicker)
+            }
+        }
+        .onDisappear {
+            notch.onEscape = nil
+            notch.keyInterceptor = nil
+            workspace.closeFocusPicker()
+        }
     }
 }

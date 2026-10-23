@@ -6,6 +6,10 @@ struct FocusSession: Identifiable, Codable, Equatable {
     var duration: TimeInterval
     var label: String?
     var taskID: UUID?
+    /// Logged by hand on the Day tab (time that wasn't tracked); can be moved, resized and deleted.
+    var manual = false
+
+    var end: Date { start.addingTimeInterval(duration) }
 }
 
 extension FocusSession {
@@ -16,5 +20,6 @@ extension FocusSession {
         duration = try c.decode(TimeInterval.self, forKey: .duration)
         label = try? c.decodeIfPresent(String.self, forKey: .label)
         taskID = try? c.decodeIfPresent(UUID.self, forKey: .taskID)
+        manual = (try? c.decodeIfPresent(Bool.self, forKey: .manual)) ?? false
     }
 }

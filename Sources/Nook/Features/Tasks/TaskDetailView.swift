@@ -22,6 +22,7 @@ struct TaskDetailView: View {
                 header(task)
                 titleField(task)
                 properties(task)
+                SubtaskList(taskID: task.id)
                 meta(task)
                 notes(task)
             }
@@ -241,12 +242,15 @@ struct TaskDetailView: View {
             } label: {
                 HStack(spacing: 5) {
                     Image(systemName: "stopwatch").font(.system(size: 9, weight: .semibold)).frame(width: 12)
-                    Text(done ? "Took \(logged)" : "\(logged) focused")
                     if let estimate {
+                        Text(done ? "Took \(logged)" : logged)
                         Text("of ~\(TaskTime.estimateText(estimate))").foregroundStyle(over ? Color.accent : Color.textSecondary)
+                    } else {
+                        Text(done ? "Took \(logged)" : "\(logged) focused")
                     }
                     if !sessions.isEmpty {
                         Text("· \(sessions.count) \(sessions.count == 1 ? "session" : "sessions")").foregroundStyle(Color.textTertiary)
+                            .layoutPriority(-1)
                     }
                     Image(systemName: "chevron.down")
                         .font(.system(size: 7, weight: .bold))
@@ -255,6 +259,7 @@ struct TaskDetailView: View {
                 }
                 .font(Typography.caption)
                 .foregroundStyle(Color.textSecondary)
+                .lineLimit(1)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)

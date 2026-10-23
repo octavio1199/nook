@@ -25,6 +25,13 @@ enum DemoMode {
         store.log(FocusSession(start: now.addingTimeInterval(-3 * 3600), duration: 47 * 60, label: done.title, taskID: done.id))
         var launch = TaskItem(title: "Draft launch post", due: cal.startOfDay(for: now), priority: .high, tags: ["work"])
         launch.estimateMinutes = 50
+        launch.subtasks = [
+            Subtask(title: "Outline the three headline features", done: true),
+            Subtask(title: "Write the intro paragraph", done: true),
+            Subtask(title: "Screenshots of the Day tab"),
+            Subtask(title: "Proofread and schedule"),
+        ]
+        launch.notes = "**Angle:** a planner that lives in the notch.\n- link the GitHub repo\n- mention it's free and local-only"
         store.add(launch)
         store.log(FocusSession(start: now.addingTimeInterval(-26 * 3600), duration: 25 * 60, label: launch.title, taskID: launch.id))
         store.log(FocusSession(start: now.addingTimeInterval(-2 * 3600), duration: 5 * 60, label: launch.title, taskID: launch.id))
@@ -37,10 +44,10 @@ enum DemoMode {
     }
 
     static func run(_ scene: String, app: AppDependencies, panel: NotchPanelController) {
-        // `--demo-screen external`: the first display without a notch (the no-notch look).
+        // `--demo-screen external|builtin`: the first display without / with a notch.
         let args = ProcessInfo.processInfo.arguments
-        if let index = args.firstIndex(of: "--demo-screen"), args.indices.contains(index + 1), args[index + 1] == "external",
-           let screen = NSScreen.screens.first(where: { $0.safeAreaInsets.top == 0 }) {
+        if let index = args.firstIndex(of: "--demo-screen"), args.indices.contains(index + 1),
+           let screen = NSScreen.screens.first(where: { ($0.safeAreaInsets.top > 0) == (args[index + 1] == "builtin") }) {
             panel.place(on: screen)
         }
         Task {
@@ -114,6 +121,10 @@ enum DemoMode {
                 draft.title = "buy coffee ~10m; call Ana tomorrow 3pm; write release notes ~1h"
                 app.workspace.composer = draft
                 app.workspace.openComposer()
+            case "focus-idle":
+                app.notch.open()
+                app.notch.isPinned = true
+                app.notch.show(.focus)
             default:
                 if let launch = app.planner.tasks.first(where: { $0.title == "Draft launch post" }) {
                     app.focus.startPomodoro(.with(id: "classic"), label: launch.title, taskID: launch.id)
@@ -122,6 +133,9 @@ enum DemoMode {
                 }
                 app.notch.open()
                 app.notch.isPinned = true
+                // "focus" stays on the Focus tab the timer switched to; the other scenes go back to Workspace.
+                try? await Task.sleep(for: .milliseconds(200))
+                if scene != "focus" { app.notch.show(DayDemo.mode == nil ? .workspace : .day) }
             }
             let args = ProcessInfo.processInfo.arguments
             if let index = args.firstIndex(of: "--snapshot"), args.indices.contains(index + 1) {

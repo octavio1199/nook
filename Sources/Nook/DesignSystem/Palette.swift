@@ -36,8 +36,8 @@ struct Card<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
-                Image(systemName: symbol).font(Typography.micro).foregroundStyle(Color.textSecondary)
-                Text(title.uppercased()).font(Typography.micro).tracking(0.8).lineLimit(1).fixedSize().foregroundStyle(Color.textSecondary)
+                Image(systemName: symbol).font(Typography.micro).foregroundStyle(Color.textTertiary)
+                Text(title.uppercased()).font(Typography.micro).tracking(0.8).lineLimit(1).fixedSize().foregroundStyle(Color.textTertiary)
                 Spacer(minLength: 0)
                 if let trailing { trailing }
             }
@@ -46,6 +46,5 @@ struct Card<Content: View>: View {
         .padding(12)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.surface))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Color.hairline))
     }
 }

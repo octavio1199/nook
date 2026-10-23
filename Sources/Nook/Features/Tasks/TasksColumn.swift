@@ -38,6 +38,7 @@ struct TasksColumn: View {
                         .transition(.opacity.combined(with: .offset(x: 14)))
                 } else {
                     VStack(alignment: .leading, spacing: 8) {
+                        CurrentTaskBanner()
                         newTaskButton
                         switcher(counts: counts)
                         taskList(visible, now: now)
@@ -210,8 +211,7 @@ private struct NewTaskButton: View {
             }
             .padding(.horizontal, 9)
             .frame(height: 28)
-            .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(hovering ? Color.surfaceRaised : Color.surface))
-            .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Color.hairline))
+            .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(hovering ? Color.surfaceRaised : Color.white.opacity(0.04)))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -296,7 +296,12 @@ private struct TaskRow: View {
         HStack(alignment: .top, spacing: 8) {
             checkbox
             VStack(alignment: .leading, spacing: 3) {
-                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                HStack(alignment: .firstTextBaseline, spacing: 5) {
+                    if task.priority != .none {
+                        Circle().fill(task.priority.tint).frame(width: 6, height: 6)
+                            .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 1 }
+                            .help("\(task.priority.title) priority")
+                    }
                     titleView
                     if hasNotes && !editing {
                         Image(systemName: "note.text")
@@ -377,7 +382,7 @@ private struct TaskRow: View {
     private var isOver: Bool { estimate.map { TaskTime.isOver(tracked: tracked, estimate: $0) } ?? false }
 
     private var hasChips: Bool {
-        task.due != nil || task.priority != .none || !task.tags.isEmpty || timeText != nil || estimate != nil
+        primaryChip != nil || task.subtaskProgress != nil || (hovering && !task.tags.isEmpty)
     }
 
     private var checkbox: some View {
@@ -429,42 +434,41 @@ private struct TaskRow: View {
         }
     }
 
+    /// One secondary chip at most (overdue or timed due date, else time vs estimate), plus sub-task
+    /// progress; tags only while hovering. The rest lives in the task detail.
     private var chips: some View {
-        // Narrow column: if everything doesn't fit, the tags go first, then a plain "Today" date,
-        // then the priority's label (its flag stays), rather than the row getting squeezed.
-        ViewThatFits(in: .horizontal) {
-            chipRow(withTags: true)
-            chipRow(withTags: false)
-            chipRow(withTags: false, compact: 1)
-            chipRow(withTags: false, compact: 2)
-        }
-        .opacity(task.done ? 0.65 : 1)
-    }
-
-    private func chipRow(withTags: Bool, compact: Int = 0) -> some View {
-        let overdue = task.isOverdue(now: now)
-        let plainToday = !task.hasTime && !overdue && task.due.map { Calendar.current.isDate($0, inSameDayAs: now) } == true
-        return HStack(spacing: 4) {
-            if task.due != nil, !(compact >= 1 && plainToday) {
-                Chip(text: TaskFormat.dueText(task, now: now),
-                     symbol: task.hasTime ? "clock" : "calendar",
-                     tint: overdue ? .red : .textSecondary)
+        HStack(spacing: 4) {
+            if let primary = primaryChip { primary }
+            if let progress = task.subtaskProgress {
+                Chip(text: "\(progress.done)/\(progress.total)", symbol: "checklist",
+                     tint: progress.done == progress.total ? .rest : .textSecondary)
+                    .help("Sub-tasks done")
             }
-            if task.priority != .none {
-                Chip(text: compact >= 2 ? "" : task.priority.shortTitle, symbol: "flag.fill", tint: task.priority.tint)
-            }
-            if let estimate {
-                Chip(text: TaskTime.progressText(tracked: tracked, estimate: estimate), symbol: "stopwatch",
-                     tint: isOver ? .accent : (timeText == nil ? .textTertiary : (task.done ? .rest : .focus)))
-                    .help(isOver ? "Over the \(TaskTime.estimateText(estimate)) estimate" : "Focused / estimated")
-            } else if let timeText {
-                Chip(text: task.done ? "took \(timeText)" : timeText, symbol: "stopwatch", tint: task.done ? .rest : .focus)
-            }
-            if withTags {
+            if hovering {
                 ForEach(task.tags, id: \.self) { Chip(text: "#\($0)", tint: .textTertiary) }
             }
         }
         .fixedSize(horizontal: true, vertical: false)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .clipped()
+        .opacity(task.done ? 0.65 : 1)
+    }
+
+    private var primaryChip: Chip? {
+        let overdue = task.isOverdue(now: now)
+        let isToday = task.due.map { Calendar.current.isDate($0, inSameDayAs: now) } == true
+        if task.due != nil, overdue || task.hasTime || !isToday {
+            return Chip(text: TaskFormat.dueText(task, now: now), symbol: task.hasTime ? "clock" : "calendar",
+                        tint: overdue ? .red : .textSecondary)
+        }
+        if let estimate {
+            return Chip(text: TaskTime.progressText(tracked: tracked, estimate: estimate), symbol: "stopwatch",
+                        tint: isOver ? .accent : (timeText == nil ? .textTertiary : (task.done ? .rest : .focus)))
+        }
+        if let timeText {
+            return Chip(text: task.done ? "took \(timeText)" : timeText, symbol: "stopwatch", tint: task.done ? .rest : .focus)
+        }
+        return nil
     }
 
     // MARK: Editing
@@ -666,6 +670,57 @@ extension TaskItem.Priority {
         case .low: Color(red: 0.42, green: 0.72, blue: 1.0)
         case .medium: .accent
         case .high: .focus
+        }
+    }
+}
+
+/// The task being focused on, pinned above the list in the focus tint with a live timer.
+/// Clicking it opens the Focus tab.
+private struct CurrentTaskBanner: View {
+    @Environment(FocusTimer.self) private var focus
+    @Environment(PlannerStore.self) private var planner
+    @Environment(NotchInteraction.self) private var notch
+
+    var body: some View {
+        if focus.isActive, let task = planner.task(focus.taskID) {
+            let tint = focus.phase?.tint ?? .focus
+            Button {
+                notch.show(.focus)
+            } label: {
+                // Status line on top, the title below on its own line so a narrow column doesn't cut it.
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 5) {
+                        Image(systemName: focus.phase?.isBreak == true ? "cup.and.saucer.fill" : "scope")
+                            .font(.system(size: 9, weight: .bold))
+                        Text(focus.phase?.isBreak == true ? "ON A BREAK" : "NOW")
+                            .font(.system(size: 9, weight: .bold))
+                            .tracking(0.6)
+                        Spacer(minLength: 4)
+                        if let progress = task.subtaskProgress {
+                            Label("\(progress.done)/\(progress.total)", systemImage: "checklist")
+                                .font(Typography.micro).monospacedDigit()
+                                .foregroundStyle(Color.textSecondary)
+                        }
+                        Text(focus.displayText)
+                            .font(.system(size: 12, weight: .semibold, design: .rounded).monospacedDigit())
+                            .foregroundStyle(focus.isPaused ? Color.textTertiary : Color.textPrimary)
+                    }
+                    .foregroundStyle(tint)
+                    Text(task.title)
+                        .font(Typography.body.weight(.medium))
+                        .foregroundStyle(Color.textPrimary)
+                        .lineLimit(2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(tint.opacity(0.16)))
+                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(tint.opacity(0.45)))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Open the Focus tab")
+            .transition(.opacity.combined(with: .move(edge: .top)))
         }
     }
 }
