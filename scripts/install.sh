@@ -18,4 +18,4 @@ mv "$TMP/Nook.app" /Applications/Nook.app
 xattr -dr com.apple.quarantine /Applications/Nook.app 2>/dev/null || true
 
 open /Applications/Nook.app
-echo "Nook installed. Hover the notch or press ⌥⌘N."
+echo "Nook installed. Hover the notch or press ⌃⌥N."
